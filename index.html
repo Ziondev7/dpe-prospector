@@ -794,9 +794,27 @@
 <!-- ─────────────── MAIN ─────────────── -->
 <div id="main">
     <div id="map" style="position:relative;">
-        <div class="map-mode-toggle" id="map-mode-toggle">
-            <button class="mmt-btn active" id="mmt-dpe" onclick="setMapMode('dpe')">🔵 DPE</button>
-            <button class="mmt-btn" id="mmt-prosp" onclick="setMapMode('crm')">👤 Prospection</button>
+        <div style="position:absolute;top:80px;right:10px;z-index:1000;display:flex;flex-direction:column;gap:5px">
+            <!-- Mode DPE vs Prospection -->
+            <div class="map-mode-toggle" id="map-mode-toggle">
+                <button class="mmt-btn active" id="mmt-dpe" onclick="setMapMode('dpe')">🔵 DPE</button>
+                <button class="mmt-btn" id="mmt-prosp" onclick="setMapMode('crm')">👤 Prospection</button>
+            </div>
+            <!-- Couleur DPE vs Date (visible seulement en mode DPE) -->
+            <div class="map-mode-toggle" id="dpe-color-toggle">
+                <button class="mmt-btn active" id="mmt-color-label" onclick="setDPEColorMode('label')">🏷️ DPE</button>
+                <button class="mmt-btn" id="mmt-color-date" onclick="setDPEColorMode('date')">📅 Date</button>
+            </div>
+        </div>
+        <!-- Légende date -->
+        <div id="date-legend" style="display:none;position:absolute;bottom:36px;right:10px;z-index:1000;background:#12151f;border:1px solid #262d42;border-radius:8px;padding:10px 14px;font-family:'IBM Plex Mono',monospace;font-size:10px;line-height:1.9">
+            <div style="color:#c9a84c;font-weight:600;margin-bottom:4px;letter-spacing:0.08em">ANCIENNETÉ</div>
+            <div><span style="color:#22c55e">⬤</span> &lt; 1 mois</div>
+            <div><span style="color:#84cc16">⬤</span> 1 – 3 mois</div>
+            <div><span style="color:#eab308">⬤</span> 3 – 6 mois</div>
+            <div><span style="color:#f97316">⬤</span> 6 – 12 mois</div>
+            <div><span style="color:#ef4444">⬤</span> 1 – 2 ans</div>
+            <div><span style="color:#6b7280">⬤</span> 2+ ans</div>
         </div>
     </div>
     <div id="panel-resizer"></div>
@@ -1658,13 +1676,15 @@ function updateDPEMarkers() {
     filtered.forEach(r => {
         if (!r.lat || !r.lng || (r.lat === 0 && r.lng === 0)) return;
 
-        const color = DPE_COLORS[r.etiquette] || '#888';
+        const color = dpeColorMode === 'date'
+            ? _getDPEDateColor(r.date_dpe)
+            : (DPE_COLORS[r.etiquette] || '#888');
         const marker = L.circleMarker([r.lat, r.lng], {
             radius: 5,
             fillColor: color,
             color: 'rgba(0,0,0,0.4)',
             weight: 1,
-            fillOpacity: 0.8
+            fillOpacity: 0.85
         });
 
         const surf = r.surface > 0 ? `${Math.round(r.surface)} m²` : '—';
@@ -2197,6 +2217,26 @@ let crmContacts = [];
 window.openContactById  = function(id) { openContactForm(crmContacts.find(c => c.id === id)); };
 window.deleteContactById = function(id) { if (confirm('Supprimer ce contact ?')) deleteCRMContact(id); };
 let mapMode = 'dpe'; // 'dpe' | 'crm'
+let dpeColorMode = 'label'; // 'label' | 'date'
+
+function _getDPEDateColor(dateStr) {
+    if (!dateStr || dateStr === '—') return '#6b7280';
+    const months = (new Date() - new Date(dateStr)) / (1000 * 60 * 60 * 24 * 30);
+    if (months < 1)  return '#22c55e';
+    if (months < 3)  return '#84cc16';
+    if (months < 6)  return '#eab308';
+    if (months < 12) return '#f97316';
+    if (months < 24) return '#ef4444';
+    return '#6b7280';
+}
+
+window.setDPEColorMode = function(mode) {
+    dpeColorMode = mode;
+    document.getElementById('mmt-color-label').classList.toggle('active', mode === 'label');
+    document.getElementById('mmt-color-date').classList.toggle('active', mode === 'date');
+    document.getElementById('date-legend').style.display = mode === 'date' ? 'block' : 'none';
+    updateDPEMarkers();
+};
 let crmMarkersLayer = null;
 let _crmStatusFilter = 'ALL';
 
@@ -2276,23 +2316,18 @@ window.setMapMode = function(mode) {
     document.getElementById('mmt-prosp').classList.toggle('active', mode === 'crm');
 
     if (mode === 'dpe') {
-        // Show DPE markers, hide CRM markers
         if (dpeMarkersLayer) dpeMarkersLayer.addTo(map);
         if (crmMarkersLayer) map.removeLayer(crmMarkersLayer);
-        // Show DPE-related sidebar, hide contacts
-        if (window.innerWidth > 768) {
-            document.getElementById('contacts-section').style.display = 'none';
-        }
-        // Remove map click handler for CRM
-        map.off('click', _onMapClickCRM);
+        if (window.innerWidth > 768) document.getElementById('contacts-section').style.display = 'none';
+        document.getElementById('dpe-color-toggle').style.display = 'flex';
+        document.getElementById('date-legend').style.display = dpeColorMode === 'date' ? 'block' : 'none';
     } else {
-        // Hide DPE markers, show CRM markers
         if (dpeMarkersLayer) map.removeLayer(dpeMarkersLayer);
+        if (crmMarkersLayer) map.removeLayer(crmMarkersLayer);
+        document.getElementById('dpe-color-toggle').style.display = 'none';
+        document.getElementById('date-legend').style.display = 'none';
         renderCRMMarkers();
-        // Show contacts in sidebar on desktop
-        if (window.innerWidth > 768) {
-            document.getElementById('contacts-section').style.display = 'block';
-        }
+        if (window.innerWidth > 768) document.getElementById('contacts-section').style.display = 'block';
     }
 };
 
