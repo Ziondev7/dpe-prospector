@@ -2293,15 +2293,8 @@ window.setMapMode = function(mode) {
         if (window.innerWidth > 768) {
             document.getElementById('contacts-section').style.display = 'block';
         }
-        // Add map click handler
-        map.on('click', _onMapClickCRM);
     }
 };
-
-function _onMapClickCRM(e) {
-    if (mapMode !== 'crm') return;
-    openContactForm(null, e.latlng.lat, e.latlng.lng, null);
-}
 
 // ═══════════════════════════════════════════════
 //  CRM — MARKERS
