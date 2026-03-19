@@ -2193,6 +2193,8 @@ _updateCacheInfo();
 const CRM_API = 'https://script.google.com/macros/s/AKfycbx2A6ZE4zUvoajMsecOX9pWEI2xwqKow_iVJhvZqBRTMP0aWRVTaMOO99w4py9pgfO8bA/exec';
 const CRM_TOKEN = 'beauxrepaires2026crm';
 let crmContacts = [];
+window.openContactById  = function(id) { openContactForm(crmContacts.find(c => c.id === id)); };
+window.deleteContactById = function(id) { if (confirm('Supprimer ce contact ?')) deleteCRMContact(id); };
 let mapMode = 'dpe'; // 'dpe' | 'crm'
 let crmMarkersLayer = null;
 let _crmStatusFilter = 'ALL'; // 'ALL' or one of CRM_STATUTS keys
@@ -2321,8 +2323,9 @@ function renderCRMMarkers() {
                 ${contact.telephone ? `<div style="color:#7c84a0;font-size:11px">📞 ${contact.telephone}</div>` : ''}
                 ${contact.date_visite ? `<div style="color:#7c84a0;font-size:11px">📅 ${contact.date_visite}</div>` : ''}
                 ${contact.notes ? `<div style="color:#a0a8c0;font-size:11px;margin-top:4px;border-top:1px solid #262d42;padding-top:4px">${contact.notes}</div>` : ''}
-                <div style="margin-top:8px">
-                    <button onclick="openContactForm(crmContacts.find(c=>c.id==='${contact.id}'))" style="background:var(--gold-dim);border:1px solid var(--gold);color:var(--gold);padding:4px 12px;border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:10px;cursor:pointer">✏️ Modifier</button>
+                <div style="margin-top:8px;display:flex;gap:6px">
+                    <button onclick="openContactById('${contact.id}')" style="background:var(--gold-dim);border:1px solid var(--gold);color:var(--gold);padding:4px 12px;border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:10px;cursor:pointer;flex:1">✏️ Modifier</button>
+                    <button onclick="deleteContactById('${contact.id}')" style="background:rgba(239,68,68,0.12);border:1px solid #ef4444;color:#ef4444;padding:4px 12px;border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:10px;cursor:pointer">🗑</button>
                 </div>
             </div>
         `, { maxWidth: 300 });
@@ -2365,7 +2368,7 @@ function renderContactsList() {
         const statut = CRM_STATUTS[contact.statut] || CRM_STATUTS['a_visiter'];
         const nomDisplay = contact.nom || contact.adresse || '—';
         const adresseDisplay = contact.nom ? contact.adresse : contact.complement;
-        return `<div class="contact-item" onclick="openContactForm(crmContacts.find(c=>c.id==='${contact.id}'))">
+        return `<div class="contact-item" onclick="openContactById('${contact.id}')">
             <div style="display:flex;justify-content:space-between;align-items:flex-start">
                 <div class="contact-name">${nomDisplay}</div>
                 <span class="crm-status-badge" style="background:${statut.color}22;color:${statut.color};flex-shrink:0;margin-left:8px">${statut.emoji} ${statut.label}</span>
