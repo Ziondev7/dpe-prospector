@@ -1,0 +1,1990 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DPE Prospector v2 — Paris</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #0c0e14;
+            --sidebar: #12151f;
+            --card: #1a1e2e;
+            --card-hover: #222840;
+            --border: #262d42;
+            --gold: #c9a84c;
+            --gold-light: #e8c96b;
+            --gold-dim: rgba(201,168,76,0.15);
+            --text: #e4e4ee;
+            --text-muted: #7c84a0;
+            --danger: #ef4444;
+            --danger-bg: rgba(239,68,68,0.12);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'IBM Plex Sans', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            height: 100vh;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* ── SIDEBAR ── */
+        #sidebar {
+            width: 380px;
+            min-width: 380px;
+            background: var(--sidebar);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+        #sidebar-header {
+            padding: 22px 24px 18px;
+            border-bottom: 1px solid var(--border);
+            background: linear-gradient(160deg, #12151f 0%, #181d30 100%);
+            position: relative;
+        }
+        #sidebar-header::after {
+            content: '';
+            position: absolute;
+            bottom: 0; left: 24px; right: 24px;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--gold-dim), transparent);
+        }
+        #sidebar-header h1 {
+            font-family: 'Playfair Display', serif;
+            font-size: 21px;
+            font-weight: 700;
+            color: var(--gold);
+            letter-spacing: 0.02em;
+        }
+        #sidebar-header .version {
+            display: inline-block;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 9px;
+            background: var(--gold-dim);
+            color: var(--gold);
+            padding: 2px 6px;
+            border-radius: 3px;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+        #sidebar-header p {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 4px;
+            font-family: 'IBM Plex Mono', monospace;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .section { padding: 18px 24px; border-bottom: 1px solid var(--border); }
+        .section-label {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: var(--gold);
+            margin-bottom: 10px;
+        }
+
+        input[type="text"], input[type="date"] {
+            width: 100%;
+            background: var(--card);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 10px 14px;
+            border-radius: 6px;
+            font-family: 'IBM Plex Sans', sans-serif;
+            font-size: 13px;
+            outline: none;
+            transition: border-color 0.2s;
+            margin-bottom: 10px;
+        }
+        input:focus { border-color: var(--gold); }
+        input[type="range"] { width: 100%; accent-color: var(--gold); margin: 6px 0; }
+        .range-labels {
+            display: flex; justify-content: space-between;
+            font-size: 11px; color: var(--text-muted);
+            font-family: 'IBM Plex Mono', monospace;
+        }
+        .range-value {
+            text-align: center;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 22px;
+            color: var(--gold-light);
+            font-weight: 500;
+            margin: 2px 0;
+        }
+        .date-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+        .date-row label {
+            font-size: 11px; color: var(--text-muted);
+            display: block; margin-bottom: 4px;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+        .date-row input { margin-bottom: 0; }
+
+        /* ── DPE FILTER CHIPS ── */
+        .dpe-filter-row {
+            display: flex; gap: 5px; flex-wrap: wrap; margin-top: 2px;
+        }
+        .dpe-chip {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px; font-weight: 500;
+            padding: 4px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            transition: all 0.15s;
+            user-select: none;
+            opacity: 0.45;
+        }
+        .dpe-chip.active { opacity: 1; }
+        .dpe-chip[data-dpe="A"] { background: #14532d; color: #4ade80; border-color: #166534; }
+        .dpe-chip[data-dpe="B"] { background: #14532d; color: #86efac; border-color: #166534; }
+        .dpe-chip[data-dpe="C"] { background: #365314; color: #a3e635; border-color: #3f6212; }
+        .dpe-chip[data-dpe="D"] { background: #713f12; color: #fbbf24; border-color: #854d0e; }
+        .dpe-chip[data-dpe="E"] { background: #7c2d12; color: #fb923c; border-color: #9a3412; }
+        .dpe-chip[data-dpe="F"] { background: #7f1d1d; color: #f87171; border-color: #991b1b; }
+        .dpe-chip[data-dpe="G"] { background: #450a0a; color: #fca5a5; border-color: #7f1d1d; }
+        .dpe-chip[data-dpe="ALL"] { background: var(--card); color: var(--gold); border-color: var(--border); }
+        .dpe-chip[data-dpe="FG"] { background: var(--danger-bg); color: var(--danger); border-color: rgba(239,68,68,0.3); }
+        .dpe-chip.active[data-dpe="ALL"] { border-color: var(--gold); }
+        .dpe-chip.active[data-dpe="FG"] { border-color: var(--danger); }
+
+        /* ── SEARCH BTN ── */
+        #search-btn {
+            width: 100%;
+            padding: 13px;
+            background: linear-gradient(135deg, var(--gold) 0%, #b8942f 100%);
+            border: none;
+            border-radius: 6px;
+            color: #0f1117;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            font-weight: 500;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        #search-btn:hover { filter: brightness(1.1); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(201,168,76,0.25); }
+        #search-btn:active { transform: translateY(0) scale(0.98); }
+        #search-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; filter: none; box-shadow: none; }
+
+        /* ── STATS ── */
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        .stat-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 14px;
+            transition: border-color 0.2s;
+        }
+        .stat-card:hover { border-color: var(--gold-dim); }
+        .stat-card .val {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 20px;
+            color: var(--gold-light);
+            font-weight: 500;
+        }
+        .stat-card .lbl {
+            font-size: 10px; color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-top: 2px;
+        }
+        .stat-card.danger .val { color: var(--danger); }
+
+        /* ── DPE BAR CHART ── */
+        .dpe-bar-chart { display: flex; gap: 3px; align-items: flex-end; height: 50px; margin-top: 10px; }
+        .dpe-bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+        .dpe-bar {
+            width: 100%; border-radius: 2px 2px 0 0;
+            min-height: 2px;
+            transition: height 0.4s ease-out;
+        }
+        .dpe-bar-label {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 9px; color: var(--text-muted);
+        }
+        .dpe-bar-count {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 8px; color: var(--text-muted);
+        }
+
+        /* ── STATUS ── */
+        #status {
+            padding: 10px 24px;
+            font-size: 11px;
+            font-family: 'IBM Plex Mono', monospace;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+            min-height: 38px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            line-height: 1.4;
+        }
+        .pulse {
+            width: 7px; height: 7px;
+            background: var(--gold);
+            border-radius: 50%;
+            animation: pulse 1s infinite;
+            flex-shrink: 0;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.3; transform: scale(0.6); }
+        }
+
+        /* ── STREETS LIST ── */
+        .streets-header {
+            padding: 12px 24px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            color: var(--gold);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .streets-header input {
+            background: var(--card);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-family: 'IBM Plex Sans', sans-serif;
+            width: 140px;
+            outline: none;
+            margin: 0;
+        }
+        .streets-header input:focus { border-color: var(--gold); }
+        .street-item {
+            padding: 10px 24px;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            transition: background 0.15s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .street-item:hover { background: var(--card); }
+        .street-item.active {
+            background: rgba(201,168,76,0.07);
+            border-left: 3px solid var(--gold);
+            padding-left: 21px;
+        }
+        .street-name { font-size: 13px; color: var(--text); }
+        .street-count {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            background: var(--card);
+            border: 1px solid var(--border);
+            padding: 2px 8px;
+            border-radius: 20px;
+            color: var(--text-muted);
+            min-width: 28px;
+            text-align: center;
+        }
+        .street-count.has-data {
+            background: rgba(201,168,76,0.12);
+            border-color: var(--gold);
+            color: var(--gold-light);
+        }
+        .street-item.no-data { opacity: 0.4; }
+
+        /* ── MAIN AREA ── */
+        #main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        #map { flex: 1; }
+
+        /* ── BOTTOM PANEL ── */
+        #bottom-panel {
+            height: 300px;
+            background: var(--sidebar);
+            border-top: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        #panel-header {
+            padding: 10px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--card);
+            flex-shrink: 0;
+        }
+        #panel-title {
+            font-family: 'Playfair Display', serif;
+            font-size: 15px;
+            color: var(--text);
+        }
+        #panel-subtitle {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+        .panel-actions { display: flex; gap: 8px; }
+        .panel-btn {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            padding: 6px 14px;
+            border-radius: 4px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .panel-btn:hover { border-color: var(--gold); color: var(--gold); }
+        .panel-btn.active { border-color: var(--gold); color: var(--gold); background: var(--gold-dim); }
+        #dpe-table-wrap { overflow-y: auto; flex: 1; }
+
+        /* ── TABLE ── */
+        table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        thead th {
+            background: var(--card);
+            padding: 8px 14px;
+            text-align: left;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            cursor: pointer;
+            user-select: none;
+            transition: color 0.15s;
+            z-index: 2;
+        }
+        thead th:hover { color: var(--gold); }
+        thead th.sorted { color: var(--gold); }
+        thead th .sort-arrow { font-size: 8px; margin-left: 4px; }
+        tbody td { padding: 8px 14px; border-bottom: 1px solid var(--border); color: var(--text); }
+        tbody tr:hover td { background: var(--card-hover); }
+
+        .dpe-badge {
+            display: inline-block;
+            padding: 2px 9px;
+            border-radius: 4px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-weight: 500;
+            font-size: 11px;
+        }
+        .dpe-A { background: #14532d; color: #4ade80; }
+        .dpe-B { background: #14532d; color: #86efac; }
+        .dpe-C { background: #365314; color: #a3e635; }
+        .dpe-D { background: #713f12; color: #fbbf24; }
+        .dpe-E { background: #7c2d12; color: #fb923c; }
+        .dpe-F { background: #7f1d1d; color: #f87171; }
+        .dpe-G { background: #450a0a; color: #fca5a5; }
+
+        .empty-state {
+            padding: 40px 24px;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        .empty-state .icon { font-size: 32px; margin-bottom: 12px; }
+
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+        /* Leaflet popup dark */
+        .leaflet-popup-content-wrapper {
+            background: var(--card) !important;
+            color: var(--text) !important;
+            border: 1px solid var(--border);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            border-radius: 8px !important;
+        }
+        .leaflet-popup-tip { background: var(--card) !important; }
+        .leaflet-popup-content { font-family: 'IBM Plex Sans', sans-serif; font-size: 12px; }
+
+        /* ── RESIZER ── */
+        #panel-resizer {
+            height: 5px;
+            background: var(--border);
+            cursor: ns-resize;
+            transition: background 0.15s;
+            flex-shrink: 0;
+        }
+        #panel-resizer:hover { background: var(--gold); }
+
+        /* ── MOBILE ── */
+        @media (max-width: 768px) {
+            body { flex-direction: column; height: 100dvh; overflow: hidden; }
+            #sidebar {
+                width: 100%; min-width: unset;
+                height: auto; max-height: 45vh;
+                border-right: none; border-bottom: 1px solid var(--border);
+                flex-shrink: 0;
+            }
+            #sidebar-header { padding: 12px 16px 10px; }
+            .section { padding: 10px 14px; }
+            #search-btn { padding: 12px; font-size: 12px; }
+            #quick-btn { min-height: 44px; }
+            #main { flex-direction: column; overflow: hidden; }
+            #map { flex: 1 !important; min-height: 200px; }
+            #bottom-panel { height: 42vh; flex-shrink: 0; }
+            #dpe-table-wrap { overflow-x: auto; }
+            .dpe-chips { flex-wrap: wrap; gap: 4px; }
+            #panel-header { padding: 8px 12px; }
+            table { font-size: 11px; }
+            td, th { padding: 5px 8px !important; }
+            /* Larger touch targets */
+            .chip { padding: 5px 10px; min-height: 32px; }
+            .street-item { padding: 10px 14px; min-height: 44px; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ─────────────── SIDEBAR ─────────────── -->
+<div id="sidebar">
+    <div id="sidebar-header">
+        <h1>DPE Prospector <span class="version">v2</span></h1>
+        <p>Prospection immobilière — France</p>
+    </div>
+
+    <!-- ADRESSE -->
+    <div class="section">
+        <div class="section-label">Adresse de départ</div>
+        <input type="text" id="address-input" placeholder="Ex: 15 rue de Rivoli, Paris" />
+        <div class="section-label" style="margin-top:4px;">Rayon de recherche</div>
+        <div class="range-value"><span id="radius-display">500</span> m</div>
+        <input type="range" id="radius-slider" min="100" max="2000" step="50" value="500" />
+        <div class="range-labels"><span>100 m</span><span>2 km</span></div>
+    </div>
+
+    <!-- PERIODE -->
+    <div class="section">
+        <div class="section-label">Période des DPE</div>
+        <div class="date-row">
+            <div>
+                <label>Du</label>
+                <input type="date" id="date-from" />
+            </div>
+            <div>
+                <label>Au</label>
+                <input type="date" id="date-to" />
+            </div>
+        </div>
+    </div>
+
+    <!-- FILTRE DPE -->
+    <div class="section">
+        <div class="section-label">Filtrer par étiquette DPE</div>
+        <div class="dpe-filter-row" id="dpe-filter">
+            <div class="dpe-chip active" data-dpe="ALL" onclick="toggleDPEFilter(this)">Tous</div>
+            <div class="dpe-chip active" data-dpe="FG" onclick="toggleDPEFilter(this)">F+G 🔥</div>
+            <div class="dpe-chip active" data-dpe="A" onclick="toggleDPEFilter(this)">A</div>
+            <div class="dpe-chip active" data-dpe="B" onclick="toggleDPEFilter(this)">B</div>
+            <div class="dpe-chip active" data-dpe="C" onclick="toggleDPEFilter(this)">C</div>
+            <div class="dpe-chip active" data-dpe="D" onclick="toggleDPEFilter(this)">D</div>
+            <div class="dpe-chip active" data-dpe="E" onclick="toggleDPEFilter(this)">E</div>
+            <div class="dpe-chip active" data-dpe="F" onclick="toggleDPEFilter(this)">F</div>
+            <div class="dpe-chip active" data-dpe="G" onclick="toggleDPEFilter(this)">G</div>
+        </div>
+    </div>
+
+    <!-- BOUTON -->
+    <div class="section">
+        <button id="search-btn">⬡ Lancer la recherche</button>
+        <button id="quick-btn" onclick="quickSearch()" style="margin-top:8px;width:100%;padding:10px;background:var(--gold-dim);border:1px solid var(--gold);color:var(--gold);border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:10px;cursor:pointer;text-align:left;line-height:1.5">
+            ⚡ Parmentier 11e · 1km · 2026→aujourd'hui<br>
+            <span style="color:var(--text-muted);font-size:9px">141 av. Parmentier · depuis 01/01/2026</span>
+        </button>
+        <div id="cache-info" style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text-muted);margin-top:5px;padding:0 2px"></div>
+    </div>
+
+    <!-- STATUS -->
+    <div id="status"><span>En attente d'une recherche...</span></div>
+
+    <!-- LOCAL SERVER TIP (shown only from file://) -->
+    <div id="local-tip" class="section" style="display:none; background: rgba(201,168,76,0.06); border-left: 3px solid var(--gold);">
+        <div style="font-size:11px; color: var(--text-muted); line-height:1.5;">
+            <b style="color:var(--gold)">💡 Astuce :</b> Pour éviter les problèmes CORS, lancez un serveur local :
+            <div style="background:var(--card); padding:6px 10px; border-radius:4px; margin-top:6px; font-family:'IBM Plex Mono',monospace; font-size:10px; color:var(--gold-light);">
+                python3 -m http.server 8080<br>
+                <span style="color:var(--text-muted)"># puis ouvrez http://localhost:8080</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- STATS -->
+    <div class="section" id="stats-section" style="display:none;">
+        <div class="section-label">Statistiques</div>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="val" id="stat-total">—</div>
+                <div class="lbl">DPE trouvés</div>
+            </div>
+            <div class="stat-card">
+                <div class="val" id="stat-streets">—</div>
+                <div class="lbl">Rues avec DPE</div>
+            </div>
+            <div class="stat-card">
+                <div class="val" id="stat-avg-surface">—</div>
+                <div class="lbl">Surface moy.</div>
+            </div>
+            <div class="stat-card danger">
+                <div class="val" id="stat-passoires">—</div>
+                <div class="lbl">Passoires (F+G)</div>
+            </div>
+        </div>
+        <!-- Mini bar chart -->
+        <div class="dpe-bar-chart" id="dpe-bar-chart"></div>
+    </div>
+
+    <!-- RUES -->
+    <div id="streets-section" style="display:none;">
+        <div class="streets-header">
+            <span>Rues (<span id="streets-count">0</span>)</span>
+            <input type="text" id="street-search" placeholder="Filtrer..." />
+        </div>
+        <div id="streets-list"></div>
+    </div>
+</div>
+
+<!-- ─────────────── MAIN ─────────────── -->
+<div id="main">
+    <div id="map"></div>
+    <div id="panel-resizer"></div>
+    <div id="bottom-panel">
+        <div id="panel-header">
+            <div>
+                <div id="panel-title">Détails DPE</div>
+                <div id="panel-subtitle">Sélectionnez une rue dans le panneau gauche</div>
+            </div>
+            <div class="panel-actions">
+                <button class="panel-btn" id="show-all-btn" onclick="showAllRecords()">Voir tout</button>
+                <button class="panel-btn" id="prosp-btn" onclick="openProspModal()" style="display:none;border-color:var(--gold);color:var(--gold)">📋 Prospection</button>
+                <button class="panel-btn" id="export-btn" onclick="exportCSV()">↓ Export CSV</button>
+            </div>
+        </div>
+        <div id="dpe-table-wrap">
+            <div class="empty-state">
+                <div class="icon">🗺️</div>
+                Entrez une adresse, définissez le rayon et la période,<br>
+                puis cliquez sur une rue pour voir tous ses DPE.
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ─────────────── SCRIPTS ─────────────── -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+window.addEventListener('load', function() {
+
+// ═══════════════════════════════════════════════
+//  GLOBALS
+// ═══════════════════════════════════════════════
+const map = L.map('map', { zoomControl: true }).setView([48.8566, 2.3522], 13);
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© OpenStreetMap, © CARTO', maxZoom: 19
+}).addTo(map);
+
+let markerLayer   = null;
+let circleLayer   = null;
+let dpeMarkersLayer = null;
+let currentDPEData  = {};
+let allDPERecords   = [];
+let activeMapStreet = null; // rue sélectionnée pour filtrer la carte
+let currentStreets  = [];
+let activeDPEFilter = new Set(['A','B','C','D','E','F','G']);
+let currentSortCol  = null;
+let currentSortDir  = 'asc';
+
+// ── Dynamic dates: 2 years back → today ──
+const now = new Date();
+const twoYearsAgo = new Date(now.getFullYear() - 2, now.getMonth(), now.getDate());
+document.getElementById('date-from').value = twoYearsAgo.toISOString().slice(0, 10);
+document.getElementById('date-to').value = now.toISOString().slice(0, 10);
+
+// ── Show local server tip if opened from file:// ──
+if (location.protocol === 'file:') {
+    document.getElementById('local-tip').style.display = 'block';
+}
+
+// ── DPE colors for map markers ──
+const DPE_COLORS = {
+    'A': '#22c55e', 'B': '#4ade80', 'C': '#84cc16',
+    'D': '#eab308', 'E': '#f97316', 'F': '#ef4444', 'G': '#dc2626'
+};
+const DPE_BG = {
+    'A': '#14532d', 'B': '#14532d', 'C': '#365314',
+    'D': '#713f12', 'E': '#7c2d12', 'F': '#7f1d1d', 'G': '#450a0a'
+};
+
+// ── Event listeners ──
+document.getElementById('search-btn').addEventListener('click', startSearch);
+document.getElementById('address-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') startSearch();
+});
+document.getElementById('radius-slider').addEventListener('input', function() {
+    document.getElementById('radius-display').textContent = this.value;
+    if (circleLayer) circleLayer.setRadius(parseInt(this.value));
+});
+document.getElementById('street-search').addEventListener('input', filterStreetsList);
+
+// ── Panel resizer ──
+const resizer = document.getElementById('panel-resizer');
+const panel = document.getElementById('bottom-panel');
+let isResizing = false;
+resizer.addEventListener('mousedown', (e) => {
+    isResizing = true;
+    document.body.style.cursor = 'ns-resize';
+    document.body.style.userSelect = 'none';
+});
+document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+    const mainRect = document.getElementById('main').getBoundingClientRect();
+    const newH = mainRect.bottom - e.clientY;
+    panel.style.height = Math.max(100, Math.min(newH, mainRect.height - 100)) + 'px';
+    map.invalidateSize();
+});
+document.addEventListener('mouseup', () => {
+    isResizing = false;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+});
+
+// ═══════════════════════════════════════════════
+//  DPE FILTER LOGIC
+// ═══════════════════════════════════════════════
+window.toggleDPEFilter = function(el) {
+    const dpe = el.dataset.dpe;
+    const allChips = document.querySelectorAll('#dpe-filter .dpe-chip');
+
+    if (dpe === 'ALL') {
+        const allActive = activeDPEFilter.size === 7;
+        allChips.forEach(c => {
+            const d = c.dataset.dpe;
+            if (d === 'ALL' || d === 'FG') {
+                c.classList.toggle('active', !allActive);
+            } else {
+                c.classList.toggle('active', !allActive);
+                if (!allActive) activeDPEFilter.add(d);
+                else activeDPEFilter.delete(d);
+            }
+        });
+        if (!allActive) activeDPEFilter = new Set(['A','B','C','D','E','F','G']);
+        else activeDPEFilter.clear();
+    } else if (dpe === 'FG') {
+        const fgActive = activeDPEFilter.has('F') && activeDPEFilter.has('G');
+        if (fgActive) {
+            // Set to ONLY F+G
+            activeDPEFilter = new Set(['F','G']);
+        } else {
+            activeDPEFilter.add('F');
+            activeDPEFilter.add('G');
+        }
+        allChips.forEach(c => {
+            const d = c.dataset.dpe;
+            if (d === 'ALL') c.classList.toggle('active', activeDPEFilter.size === 7);
+            else if (d === 'FG') c.classList.toggle('active', activeDPEFilter.has('F') && activeDPEFilter.has('G'));
+            else c.classList.toggle('active', activeDPEFilter.has(d));
+        });
+    } else {
+        el.classList.toggle('active');
+        if (activeDPEFilter.has(dpe)) activeDPEFilter.delete(dpe);
+        else activeDPEFilter.add(dpe);
+        // Update ALL and FG chips
+        document.querySelector('[data-dpe="ALL"]').classList.toggle('active', activeDPEFilter.size === 7);
+        document.querySelector('[data-dpe="FG"]').classList.toggle('active', activeDPEFilter.has('F') && activeDPEFilter.has('G'));
+    }
+
+    // Re-render if we have data
+    if (allDPERecords.length) {
+        renderStreetsList();
+        updateDPEMarkers();
+        updateStats();
+        // Re-render active street
+        const activeStreet = document.querySelector('.street-item.active');
+        if (activeStreet) selectStreet(decodeURIComponent(activeStreet.dataset.street));
+    }
+};
+
+function getFilteredRecords(records) {
+    if (!records) return [];
+    return records.filter(r => activeDPEFilter.has(r.etiquette));
+}
+
+// ═══════════════════════════════════════════════
+//  STATUS
+// ═══════════════════════════════════════════════
+function setStatus(msg, loading = false) {
+    document.getElementById('status').innerHTML = loading
+        ? `<div class="pulse"></div><span>${msg}</span>`
+        : `<span>${msg}</span>`;
+}
+
+// ═══════════════════════════════════════════════
+//  FETCH HELPERS — robust multi-strategy
+//  Returns PARSED JSON directly (not Response)
+//  Validates that proxy actually returned JSON
+// ═══════════════════════════════════════════════
+let _proxyStrategy = null;
+
+async function _tryFetchJSON(url, timeoutMs) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+        const res = await fetch(url, { signal: ctrl.signal });
+        clearTimeout(timer);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const text = await res.text();
+        // Validate it's actually JSON (some proxies return error HTML/text with 200)
+        if (!text.trim().startsWith('{') && !text.trim().startsWith('[')) {
+            throw new Error('Response is not JSON: ' + text.substring(0, 80));
+        }
+        return JSON.parse(text);
+    } catch(e) {
+        clearTimeout(timer);
+        throw e;
+    }
+}
+
+function _proxyUrl(url, proxyId) {
+    switch(proxyId) {
+        case 'direct':     return url;
+        case 'corsproxy':  return 'https://corsproxy.io/?' + encodeURIComponent(url);
+        case 'allorigins': return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
+        case 'codetabs':   return 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url);
+    }
+}
+
+const PROXY_ORDER = ['direct', 'corsproxy', 'allorigins', 'codetabs'];
+
+// Returns parsed JSON — throws if ALL strategies fail
+async function robustFetchJSON(url, timeoutMs = 15000) {
+    // If we already know a working strategy, try it first
+    if (_proxyStrategy) {
+        try {
+            return await _tryFetchJSON(_proxyUrl(url, _proxyStrategy), timeoutMs);
+        } catch(e) {
+            console.warn(`Cached proxy "${_proxyStrategy}" failed, retrying all...`);
+            _proxyStrategy = null;
+        }
+    }
+
+    const errors = [];
+    for (const proxy of PROXY_ORDER) {
+        const pUrl = _proxyUrl(url, proxy);
+        try {
+            const data = await _tryFetchJSON(pUrl, proxy === 'direct' ? 6000 : timeoutMs);
+            _proxyStrategy = proxy;
+            if (proxy !== 'direct') console.log(`✓ Using proxy: ${proxy}`);
+            return data;
+        } catch(e) {
+            errors.push(`${proxy}: ${e.message || e}`);
+            continue;
+        }
+    }
+
+    console.error('All fetch strategies failed:', errors);
+    const isFileProtocol = location.protocol === 'file:';
+    throw new Error(
+        isFileProtocol
+            ? `CORS bloqué. Lancez un serveur local (voir astuce ci-dessus).`
+            : `API inaccessible. Erreurs : ${errors[0]}`
+    );
+}
+
+// ═══════════════════════════════════════════════
+//  1. GEOCODING (API Adresse BAN)
+// ═══════════════════════════════════════════════
+async function geocodeAddress(address) {
+    const url = `https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(address)}&limit=1`;
+    const res = await robustFetchJSON(url);
+    if (!res.features || !res.features.length) throw new Error('Adresse introuvable.');
+    const [lng, lat] = res.features[0].geometry.coordinates;
+    const props = res.features[0].properties;
+    return {
+        lat, lng,
+        label: props.label,
+        postcode: props.postcode || '',
+        citycode: props.citycode || '',
+    };
+}
+
+// ═══════════════════════════════════════════════
+//  2. STREETS (Overpass API)
+// ═══════════════════════════════════════════════
+async function getStreetsInRadius(lat, lng, radiusM) {
+    const query = `[out:json][timeout:30];
+way(around:${radiusM},${lat},${lng})[highway~"^(residential|secondary|tertiary|primary|living_street|pedestrian|unclassified|trunk|service)$"][name];
+out tags;`;
+    // Overpass supports POST with CORS, but file:// might still block it
+    let data;
+    try {
+        const res = await fetch('https://overpass-api.de/api/interpreter', {
+            method: 'POST',
+            body: 'data=' + encodeURIComponent(query),
+            signal: AbortSignal.timeout(30000)
+        });
+        data = await res.json();
+    } catch(e) {
+        // Fallback: GET via robustFetchJSON (handles CORS via proxies)
+        const getUrl = 'https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(query);
+        data = await robustFetchJSON(getUrl, 30000);
+    }
+    const seen = new Set();
+    const streets = [];
+    (data.elements || []).forEach(el => {
+        const name = el.tags && el.tags.name;
+        if (name && !seen.has(name)) { seen.add(name); streets.push({ name }); }
+    });
+    return streets.sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+}
+
+// ═══════════════════════════════════════════════
+//  3. DPE DATA (ADEME Data-Fair API)
+//  Uses _geo_distance + native field range filters
+//  (NOT Lucene qs — that breaks with accented fields)
+// ═══════════════════════════════════════════════
+const ADEME_DATASET = 'dpe03existant';
+
+// Centres approximatifs des arrondissements parisiens (WGS84)
+const PARIS_ARR = {
+    '75001': [48.8603, 2.3477], '75002': [48.8661, 2.3467],
+    '75003': [48.8630, 2.3618], '75004': [48.8538, 2.3513],
+    '75005': [48.8462, 2.3508], '75006': [48.8496, 2.3356],
+    '75007': [48.8566, 2.3128], '75008': [48.8736, 2.3088],
+    '75009': [48.8778, 2.3367], '75010': [48.8765, 2.3637],
+    '75011': [48.8590, 2.3797], '75012': [48.8418, 2.3937],
+    '75013': [48.8306, 2.3580], '75014': [48.8294, 2.3271],
+    '75015': [48.8412, 2.2951], '75016': [48.8636, 2.2725],
+    '75017': [48.8879, 2.3118], '75018': [48.8920, 2.3441],
+    '75019': [48.8852, 2.3830], '75020': [48.8638, 2.4003],
+};
+
+function _haversineM(lat1, lng1, lat2, lng2) {
+    const R = 6371000, toRad = d => d * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
+    const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng/2)**2;
+    return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+// Paginate all records for a single server-side filter set
+// onProgress(fetched, total) optionnel pour feedback UI
+async function _fetchAllForFilter(filterParams, dateFieldName, dateFrom, dateTo, onProgress) {
+    const results = [];
+    let after = null;
+    let page = 0;
+    while (page < 60) {
+        page++;
+        const params = new URLSearchParams({ size: '1000', ...filterParams });
+        if (dateFieldName && dateFrom) params.set(dateFieldName + '_gte', dateFrom);
+        if (dateFieldName && dateTo) params.set(dateFieldName + '_lte', dateTo);
+        if (after) params.set('after', after);
+        const url = `https://data.ademe.fr/data-fair/api/v1/datasets/${ADEME_DATASET}/lines?${params}`;
+        const data = await robustFetchJSON(url, 25000);
+        if (!data.results || !data.results.length) break;
+        results.push(...data.results);
+        if (onProgress) onProgress(results.length, data.total || 0);
+        if (data.next) {
+            try { after = new URL(data.next, 'https://data.ademe.fr').searchParams.get('after'); }
+            catch(e) { after = null; }
+        } else { after = null; }
+        if (!after || (data.total && results.length >= data.total)) break;
+        await sleep(100);
+    }
+    return results;
+}
+
+async function getAllDPEInRadius(lat, lng, radiusM, dateFrom, dateTo, postcode) {
+    // ── 1. Detect date field ──
+    setStatus('Connexion API ADEME...', true);
+    const testData = await robustFetchJSON(
+        `https://data.ademe.fr/data-fair/api/v1/datasets/${ADEME_DATASET}/lines?size=1`, 12000
+    );
+    if (!testData.results?.length) throw new Error('API ADEME inaccessible');
+    let dateFieldName = null;
+    for (const key of Object.keys(testData.results[0])) {
+        const nk = _nk(key);
+        if (nk === 'datereceptiondpe' || nk === 'dateetablissementdpe') { dateFieldName = key; break; }
+    }
+
+    // ── 2. Build list of filters (one per CP) ──
+    // Paris : sélection des arrondissements couverts par le rayon + 2km de marge
+    // Autres villes : filtre CP unique
+    let filters = [];
+    if (postcode && postcode.startsWith('75')) {
+        // Buffer fixe 1500m : couvre les arrondissements à cheval sans en prendre trop
+        const buffer = 1500;
+        for (const [cp, [cLat, cLng]] of Object.entries(PARIS_ARR)) {
+            if (_haversineM(lat, lng, cLat, cLng) <= radiusM + buffer) {
+                filters.push({ cp, params: { code_postal_ban_eq: cp } });
+            }
+        }
+        console.log(`📍 Paris: ${filters.length} arrondissements: ${filters.map(f => f.cp).join(', ')}`);
+    } else if (postcode) {
+        filters = [{ cp: postcode, params: { code_postal_ban_eq: postcode } }];
+    } else {
+        filters = [{ cp: '?', params: { _geo_distance: `${lat},${lng},${radiusM}m` } }];
+    }
+
+    // ── 3. Count total in parallel (pour affichage) ──
+    const totals = await Promise.all(filters.map(async ({ params: fp }) => {
+        const p = new URLSearchParams({ size: '1', ...fp });
+        if (dateFieldName && dateFrom) p.set(dateFieldName + '_gte', dateFrom);
+        if (dateFieldName && dateTo) p.set(dateFieldName + '_lte', dateTo);
+        const d = await robustFetchJSON(
+            `https://data.ademe.fr/data-fair/api/v1/datasets/${ADEME_DATASET}/lines?${p}`, 12000
+        );
+        return d.total || 0;
+    }));
+    const totalExpected = totals.reduce((a, b) => a + b, 0);
+    setStatus(`${totalExpected} DPE trouvés — récupération en parallèle...`, true);
+    console.log(`📊 Totaux par zone: ${filters.map((f,i) => `${f.cp}:${totals[i]}`).join(' ')}`);
+
+    // ── 4. Fetch toutes les zones en parallèle (max 4 simultanés) ──
+    const progress = { n: 0 }; // compteur partagé entre les fetches parallèles
+    const MAX_CONCURRENT = 4;
+    const allChunks = [];
+    for (let i = 0; i < filters.length; i += MAX_CONCURRENT) {
+        const batch = filters.slice(i, i + MAX_CONCURRENT);
+        const batchResults = await Promise.all(
+            batch.map(({ params: fp }) => _fetchAllForFilter(fp, dateFieldName, dateFrom, dateTo, (n) => {
+                progress.n += 1000; // approx (1 page = 1000 records)
+                setStatus(`Récupération... ${Math.min(progress.n, totalExpected)} / ${totalExpected}`, true);
+            }))
+        );
+        allChunks.push(...batchResults);
+    }
+    const allResults = allChunks.flat();
+    console.log(`✅ ${allResults.length} DPE récupérés (${filters.length} zones en parallèle)`);
+    return allResults;
+}
+
+// Fallback: fetch sans filtre date (si erreur 400 sur le filtre date)
+async function _fetchWithoutDateFilter(lat, lng, radiusM, postcode) {
+    const filters = [];
+    if (postcode && postcode.startsWith('75')) {
+        const buffer = 1500;
+        for (const [cp, [cLat, cLng]] of Object.entries(PARIS_ARR)) {
+            if (_haversineM(lat, lng, cLat, cLng) <= radiusM + buffer)
+                filters.push({ code_postal_ban_eq: cp });
+        }
+    } else if (postcode) {
+        filters.push({ code_postal_ban_eq: postcode });
+    } else {
+        filters.push({ _geo_distance: `${lat},${lng},${radiusM}m` });
+    }
+    setStatus('Récupération sans filtre date (parallèle)...', true);
+    const chunks = await Promise.all(filters.map(fp => _fetchAllForFilter(fp, null, null, null)));
+    const allResults = chunks.flat();
+    // keep only block below for compat with old code that used this function's return
+    return allResults;
+}
+
+// ═══════════════════════════════════════════════
+//  FIELD NAME RESOLVER — auto-detect ADEME keys
+// ═══════════════════════════════════════════════
+let _fieldMap = null;
+
+function _nk(k) {
+    return k.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+}
+
+function _buildFieldMap(record) {
+    const keys = Object.keys(record);
+    const nKeys = keys.map(k => ({ raw: k, n: _nk(k) }));
+    const map = {};
+
+    const FIELDS = [
+        ['etiquette',     ['etiquettedpe', 'classeconsommationenergie']],
+        ['etiquetteges',  ['etiquetteges', 'classebilanges']],
+        ['ndpe',          ['numerodpe', 'ndpe']],
+        ['adresse',       ['adresseban']],
+        ['adressebrute',  ['adressebrut', 'adressebrute']],
+        ['nomrue',        ['nomrueban', 'nomrue']],
+        ['codepostal',    ['codepostalban', 'codepostal']],
+        ['commune',       ['nomcommuneban', 'nomcommune']],
+        ['datereception', ['datereceptiondpe', 'dateetablissementdpe']],
+        ['surface',       ['surfacehabitablelogement', 'surfacehabitable']],
+        ['surfaceimmeuble', ['surfacehabitableimmeuble']],
+        ['etage',         ['numeroetagerappartement', 'etageappartement', 'numeroetage']],
+        ['nbniveaulogement', ['nombreniveaulogement']],
+        ['nbniveauimmeuble', ['nombreniveauimmeuble']],
+        ['nbappartement', ['nombreappartement']],
+        ['cageescalier',  ['cageescalier']],
+        ['complementadr', ['complementadresselogement', 'complementadressebatiment']],
+        ['batappt',       ['complementadressebatiment', 'numeroappartementouescalieroubatiment']],
+        ['typebat',       ['typebatiment']],
+        ['periodeconstruction', ['periodeconstruction']],
+        ['anneeconstruction',   ['anneeconstruction']],
+        ['conso5usages',  ['conso5usagesparm2ep', 'consommation5usagesm2eprimaire', 'consommation5usagesparm2primaire']],
+        ['emissionges',   ['emissionges5usagesparm2', 'emissionges5usagesm2']],
+        ['couttotal',     ['couttotal5usages']],
+        ['coutchauffage', ['coutchauffage']],
+        ['energiechauffage', ['typeenergieprincipalechauffage']],
+        ['energieecs',    ['typeenergieprincipaleecsecs', 'typeenergieprincipalecs']],
+        ['ubat',          ['ubat']],
+        ['qualitemurs',   ['qualiteisolationmurs']],
+        ['qualitefenetres', ['qualiteisolationmenuiseries']],
+        ['qualiteplancher', ['qualiteisolationplancherbas']],
+        ['qualiteenveloppe', ['qualiteisolationenveloppe']],
+        ['banY',          ['coordonneecartographiqueyban', 'latitude']],
+        ['banX',          ['coordonneecartographiquexban', 'longitude']],
+        ['geopoint',      ['geopoint']],
+    ];
+
+    for (const [canonical, patterns] of FIELDS) {
+        for (const p of patterns) {
+            const found = nKeys.find(k => k.n === p);
+            if (found) { map[canonical] = found.raw; break; }
+        }
+        if (map[canonical]) continue;
+        for (const p of patterns) {
+            const found = nKeys.find(k => k.n.startsWith(p));
+            if (found) { map[canonical] = found.raw; break; }
+        }
+    }
+
+    console.log('🔍 ADEME field mapping:', map);
+    console.log('📋 All raw keys:', keys);
+    return map;
+}
+
+function _f(r, canonical, fallback) {
+    if (!_fieldMap) return fallback !== undefined ? fallback : '';
+    const key = _fieldMap[canonical];
+    if (!key) return fallback !== undefined ? fallback : '';
+    const v = r[key];
+    return (v !== undefined && v !== null && v !== '') ? v : (fallback !== undefined ? fallback : '');
+}
+
+// ═══════════════════════════════════════════════
+//  NORMALIZE a DPE record — with all detail fields
+// ═══════════════════════════════════════════════
+function normalizeRecord(r) {
+    if (!_fieldMap) {
+        _fieldMap = _buildFieldMap(r);
+        console.log('📊 First raw record:', JSON.stringify(r).substring(0, 1500));
+    }
+
+    // Geo: extract WGS84 coordinates
+    // Priority 1: _geopoint system field (always WGS84)
+    // Priority 2: BAN X/Y fields only if values are in valid WGS84 range
+    // NOTE: coordonnee_cartographique_x/y_ban are in Lambert 93, NOT WGS84 — ignore them
+    let lat = 0, lng = 0;
+
+    const gp = r['_geopoint'] || r['_geo_point'] || '';
+    if (gp && typeof gp === 'string' && gp.includes(',')) {
+        lat = parseFloat(gp.split(',')[0]) || 0;
+        lng = parseFloat(gp.split(',')[1]) || 0;
+    }
+
+    // Fallback: search for any field with lat/lon in valid WGS84 range
+    if (!lat || !lng) {
+        for (const key of Object.keys(r)) {
+            const nk = key.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+            const val = parseFloat(r[key]);
+            if (!isNaN(val) && (nk === 'latitude' || nk === 'lat') && Math.abs(val) <= 90) {
+                lat = val;
+            }
+            if (!isNaN(val) && (nk === 'longitude' || nk === 'lon' || nk === 'lng') && Math.abs(val) <= 180) {
+                lng = val;
+            }
+        }
+    }
+
+    // Log first record's coordinate extraction for debugging
+    if (!_fieldMap.__geoLogged) {
+        _fieldMap.__geoLogged = true;
+        const allKeys = Object.keys(r);
+        const geoKeys = allKeys.filter(k => {
+            const lk = k.toLowerCase();
+            return lk.includes('coord') || lk.includes('carto') || lk.includes('geo') ||
+                   lk.includes('lat') || lk.includes('lon') || lk.includes('ban');
+        });
+        console.log('🌍 Geo-related keys found:', geoKeys);
+        console.log('🌍 Extracted lat/lng:', lat, lng);
+    }
+
+    // Build apartment location string from available fields
+    const etage = _f(r, 'etage', '');
+    const cage = _f(r, 'cageescalier', '');
+    const complement = _f(r, 'complementadr', '');
+    const batAppt = _f(r, 'batappt', '');
+
+    // Combine into a readable lot/location string
+    const lotParts = [batAppt, complement, cage ? `Esc. ${cage}` : ''].filter(Boolean);
+    const lotStr = lotParts.join(' · ') || '—';
+
+    return {
+        numero_dpe:         _f(r, 'ndpe', '—'),
+        adresse:            _f(r, 'adresse', '—'),
+        adresse_brute:      _f(r, 'adressebrute', ''),
+        nom_rue:            _f(r, 'nomrue', ''),
+        code_postal:        _f(r, 'codepostal', ''),
+        commune:            _f(r, 'commune', ''),
+        date_dpe:           String(_f(r, 'datereception', '')).slice(0, 10),
+        etiquette:          _f(r, 'etiquette', '?'),
+        etiquette_ges:      _f(r, 'etiquetteges', '?'),
+        surface:            parseFloat(_f(r, 'surface', 0)) || 0,
+        surface_immeuble:   parseFloat(_f(r, 'surfaceimmeuble', 0)) || 0,
+        etage:              etage || '—',
+        nb_niveaux:         _f(r, 'nbniveauimmeuble', ''),
+        nb_appartements:    _f(r, 'nbappartement', ''),
+        lot:                lotStr,
+        cage_escalier:      cage,
+        complement_adr:     complement,
+        type_batiment:      _f(r, 'typebat', '—'),
+        periode_construction: _f(r, 'periodeconstruction', '—'),
+        annee_construction: _f(r, 'anneeconstruction', ''),
+        conso_m2:           parseFloat(_f(r, 'conso5usages', 0)) || 0,
+        emission_ges:       parseFloat(_f(r, 'emissionges', 0)) || 0,
+        cout_total:         parseFloat(_f(r, 'couttotal', 0)) || 0,
+        cout_chauffage:     parseFloat(_f(r, 'coutchauffage', 0)) || 0,
+        energie_chauffage:  _f(r, 'energiechauffage', '—'),
+        energie_ecs:        _f(r, 'energieecs', '—'),
+        qualite_murs:       _f(r, 'qualitemurs', ''),
+        qualite_fenetres:   _f(r, 'qualitefenetres', ''),
+        qualite_enveloppe:  _f(r, 'qualiteenveloppe', ''),
+        code_immeuble:      batAppt,   // référence interne bâtiment (ex: 26/IMO/2231)
+        complement_logement: complement, // info lisible (ex: "Bat. B2; Etage 7; Porte Droite")
+        lat, lng,
+        raw: r
+    };
+}
+
+// ═══════════════════════════════════════════════
+//  MATCH DPE → STREETS (improved fuzzy matching)
+// ═══════════════════════════════════════════════
+function matchDPEToStreet(records, streets) {
+    const result = {};
+    streets.forEach(s => result[s.name] = []);
+    result['— Non classés —'] = [];
+
+    // Pre-build street lookup with normalized names
+    const streetIndex = streets.map(s => {
+        const normalized = s.name.toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        // Split into words, keep ALL words (including short ones like "Bac", "Mai")
+        const words = normalized.split(/[\s'-]+/).filter(w => w.length > 0);
+        // "Significant" = words > 2 chars OR the whole name if all words are short
+        const significant = words.filter(w => w.length > 2);
+        return {
+            name: s.name,
+            normalized,
+            words,
+            significant: significant.length > 0 ? significant : words
+        };
+    });
+
+    records.forEach(raw => {
+        const norm = normalizeRecord(raw);
+        const adresseRaw = (norm.adresse + ' ' + norm.nom_rue);
+        const adresse = adresseRaw.toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+        let best = null;
+        let bestScore = 0;
+
+        streetIndex.forEach(s => {
+            // Score 1: Check if the full street name appears in the address
+            if (adresse.includes(s.normalized)) {
+                const score = s.normalized.length + 100; // Strong bonus for full match
+                if (score > bestScore) { bestScore = score; best = s.name; }
+                return;
+            }
+
+            // Score 2: Check significant keywords
+            const matched = s.significant.filter(k => adresse.includes(k));
+            const score = matched.length;
+            // Require at least half the significant words to match
+            const threshold = Math.max(1, Math.ceil(s.significant.length * 0.5));
+            if (score >= threshold && score > bestScore) {
+                bestScore = score;
+                best = s.name;
+            }
+        });
+
+        if (best && bestScore > 0) {
+            result[best].push(norm);
+        } else {
+            result['— Non classés —'].push(norm);
+        }
+    });
+
+    return result;
+}
+
+// Version that takes already-normalized records
+function matchDPEToStreetNormalized(normalizedRecords, streets) {
+    const result = {};
+    streets.forEach(s => result[s.name] = []);
+    result['— Non classés —'] = [];
+
+    const streetIndex = streets.map(s => {
+        const normalized = s.name.toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+        const words = normalized.split(/[\s'-]+/).filter(w => w.length > 0);
+        const significant = words.filter(w => w.length > 2);
+        return {
+            name: s.name,
+            normalized,
+            significant: significant.length > 0 ? significant : words
+        };
+    });
+
+    normalizedRecords.forEach(norm => {
+        const adresse = (norm.adresse + ' ' + norm.nom_rue).toLowerCase()
+            .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+        let best = null;
+        let bestScore = 0;
+
+        streetIndex.forEach(s => {
+            if (adresse.includes(s.normalized)) {
+                const score = s.normalized.length + 100;
+                if (score > bestScore) { bestScore = score; best = s.name; }
+                return;
+            }
+            const matched = s.significant.filter(k => adresse.includes(k));
+            const score = matched.length;
+            const threshold = Math.max(1, Math.ceil(s.significant.length * 0.5));
+            if (score >= threshold && score > bestScore) {
+                bestScore = score;
+                best = s.name;
+            }
+        });
+
+        if (best && bestScore > 0) {
+            result[best].push(norm);
+        } else {
+            result['— Non classés —'].push(norm);
+        }
+    });
+
+    return result;
+}
+async function startSearch() {
+    const address = document.getElementById('address-input').value.trim();
+    if (!address) { setStatus('⚠ Veuillez entrer une adresse'); return; }
+
+    const radius   = parseInt(document.getElementById('radius-slider').value);
+    const dateFrom = document.getElementById('date-from').value;
+    const dateTo   = document.getElementById('date-to').value;
+
+    const btn = document.getElementById('search-btn');
+    btn.disabled = true;
+
+    allDPERecords  = [];
+    _fieldMap      = null; // reset field name cache
+    currentDPEData = {};
+    currentStreets = [];
+    document.getElementById('dpe-table-wrap').innerHTML =
+        '<div class="empty-state"><div class="icon">⏳</div>Chargement en cours...</div>';
+    document.getElementById('panel-title').textContent    = 'Détails DPE';
+    document.getElementById('panel-subtitle').textContent = '';
+    document.getElementById('streets-section').style.display = 'none';
+    document.getElementById('stats-section').style.display   = 'none';
+
+    // Clean map layers
+    if (markerLayer) { map.removeLayer(markerLayer); markerLayer = null; }
+    if (circleLayer) { map.removeLayer(circleLayer); circleLayer = null; }
+    if (dpeMarkersLayer) { map.removeLayer(dpeMarkersLayer); dpeMarkersLayer = null; }
+
+    try {
+        // ── 1. Geocode ──
+        setStatus('Géolocalisation...', true);
+        const { lat, lng, label, postcode } = await geocodeAddress(address);
+        console.log(`📍 Géocodé: ${label} | CP: ${postcode}`);
+
+        markerLayer = L.circleMarker([lat, lng], {
+            radius: 10, fillColor: '#c9a84c', color: '#fff',
+            weight: 2.5, opacity: 1, fillOpacity: 1
+        }).addTo(map).bindPopup(`<b style="color:#c9a84c">${label}</b>`).openPopup();
+
+        circleLayer = L.circle([lat, lng], {
+            radius, color: '#c9a84c', fillColor: '#c9a84c',
+            fillOpacity: 0.04, weight: 1.5, dashArray: '6,4'
+        }).addTo(map);
+        map.fitBounds(circleLayer.getBounds(), { padding: [50, 50] });
+
+        // ── 2. Get DPE data ──
+        setStatus('Recherche des DPE dans le périmètre...', true);
+        const rawRecords = await getAllDPEInRadius(lat, lng, radius, dateFrom, dateTo, postcode);
+
+        if (!rawRecords.length) {
+            setStatus('Aucun DPE trouvé dans ce périmètre pour cette période.');
+            btn.disabled = false; return;
+        }
+
+        // ── 3. Get streets ──
+        setStatus('Chargement des rues (Overpass)...', true);
+        const streets = await getStreetsInRadius(lat, lng, radius);
+        currentStreets = streets;
+
+        // ── 4. Normalize + geo filter ──
+        setStatus('Traitement des données...', true);
+        const allNormalized = rawRecords.map(normalizeRecord);
+
+        // Check coordinates for map display + haversine
+        const withCoords = allNormalized.filter(r => r.lat !== 0 && r.lng !== 0);
+        console.log(`Coords: ${withCoords.length} / ${allNormalized.length}`);
+
+        if (withCoords.length > allNormalized.length * 0.1) {
+            // Haversine — strict radius filter
+            const toRad = d => d * Math.PI / 180;
+            function haversineM(lat1, lng1, lat2, lng2) {
+                const R = 6371000;
+                const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
+                const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng/2)**2;
+                return 2 * R * Math.asin(Math.sqrt(a));
+            }
+            allDPERecords = allNormalized.filter(r => {
+                if (!r.lat || !r.lng) return true;
+                return haversineM(lat, lng, r.lat, r.lng) <= radius;
+            });
+            console.log(`Haversine: ${allNormalized.length} → ${allDPERecords.length}`);
+        } else {
+            // No coordinates — trust API sorting
+            allDPERecords = allNormalized;
+            console.warn('⚠ Few BAN coords — keeping all API results');
+        }
+
+        const withGeo = allDPERecords.filter(r => r.lat !== 0 && r.lng !== 0);
+
+        if (!allDPERecords.length) {
+            setStatus('Aucun DPE trouvé pour ces critères.');
+            btn.disabled = false; return;
+        }
+
+        // ── 5. Match DPE → streets ──
+        setStatus('Association des DPE aux rues...', true);
+        currentDPEData = matchDPEToStreetNormalized(allDPERecords, streets);
+
+        // ── 5. Render ──
+        document.getElementById('streets-section').style.display = 'block';
+        document.getElementById('stats-section').style.display   = 'block';
+        renderStreetsList();
+        updateStats();
+        updateDPEMarkers();
+
+        const streetsWithData = Object.entries(currentDPEData)
+            .filter(([k, v]) => k !== '— Non classés —' && v.length > 0).length;
+        const unmatched = (currentDPEData['— Non classés —'] || []).length;
+        const pct = allDPERecords.length ? Math.round((1 - unmatched / allDPERecords.length) * 100) : 0;
+
+        setStatus(`✓ ${allDPERecords.length} DPE dans ${radius}m — ${streetsWithData} rues — ${withGeo.length} sur carte`);
+
+        if (window._postSearchHook) { window._postSearchHook(); window._postSearchHook = null; }
+
+    } catch(err) {
+        const msg = err.message.replace(/\n/g, '<br>');
+        setStatus(`❌ ${msg}`);
+        console.error(err);
+        if (location.protocol === 'file:') {
+            document.getElementById('local-tip').style.display = 'block';
+        }
+    }
+
+    btn.disabled = false;
+}
+
+// ═══════════════════════════════════════════════
+//  DPE MARKERS ON MAP
+// ═══════════════════════════════════════════════
+function updateDPEMarkers() {
+    if (dpeMarkersLayer) map.removeLayer(dpeMarkersLayer);
+    dpeMarkersLayer = L.layerGroup();
+
+    // Si une rue est sélectionnée, restreindre la carte à ses DPE uniquement
+    const base = (activeMapStreet && currentDPEData[activeMapStreet])
+        ? currentDPEData[activeMapStreet]
+        : allDPERecords;
+    const filtered = getFilteredRecords(base);
+
+    filtered.forEach(r => {
+        if (!r.lat || !r.lng || (r.lat === 0 && r.lng === 0)) return;
+
+        const color = DPE_COLORS[r.etiquette] || '#888';
+        const marker = L.circleMarker([r.lat, r.lng], {
+            radius: 5,
+            fillColor: color,
+            color: 'rgba(0,0,0,0.4)',
+            weight: 1,
+            fillOpacity: 0.8
+        });
+
+        const surf = r.surface > 0 ? `${Math.round(r.surface)} m²` : '—';
+        const conso = r.conso_m2 > 0 ? `${Math.round(r.conso_m2)} kWh/m²/an` : '';
+        const ges = r.emission_ges > 0 ? `${Math.round(r.emission_ges)} kgCO₂/m²/an` : '';
+        const cout = r.cout_total > 0 ? `${Math.round(r.cout_total)} €/an` : '';
+        const gesColor = DPE_COLORS[r.etiquette_ges] || '#888';
+        const periode = r.periode_construction !== '—' ? r.periode_construction.replace(/_/g,' ') : '';
+
+        // Building details
+        let locParts = [];
+        if (r.etage && r.etage !== '—') locParts.push(`Étage ${r.etage}`);
+        if (r.nb_niveaux) locParts.push(`${r.nb_niveaux} niveaux`);
+        if (r.lot && r.lot !== '—') locParts.push(r.lot);
+        const locStr = locParts.join(' · ');
+
+        marker.bindPopup(`
+            <div style="font-size:12px;line-height:1.6;min-width:240px">
+                <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+                    <span style="background:${DPE_BG[r.etiquette]||'#333'};color:${color};padding:2px 8px;border-radius:3px;font-weight:600;font-size:13px">DPE ${r.etiquette}</span>
+                    <span style="background:${DPE_BG[r.etiquette_ges]||'#333'};color:${gesColor};padding:2px 8px;border-radius:3px;font-weight:600;font-size:13px">GES ${r.etiquette_ges}</span>
+                    <span style="color:#7c84a0;font-size:11px;margin-left:auto">${surf}</span>
+                </div>
+                <div style="color:#e4e4ee"><b>${r.adresse}</b></div>
+                ${locStr ? `<div style="color:#a0a8c0;font-size:11px">📍 ${locStr}</div>` : ''}
+                ${conso ? `<div style="color:#7c84a0;font-size:11px">⚡ ${conso}</div>` : ''}
+                ${ges ? `<div style="color:#7c84a0;font-size:11px">🌿 ${ges}</div>` : ''}
+                ${cout ? `<div style="color:#e8c96b;font-size:11px">💰 ${cout}</div>` : ''}
+                <div style="color:#7c84a0;font-size:10px;margin-top:3px;border-top:1px solid #262d42;padding-top:3px">
+                    ${r.type_batiment !== '—' ? r.type_batiment + ' · ' : ''}${periode ? periode + ' · ' : ''}${r.date_dpe}
+                    ${r.energie_chauffage !== '—' ? '<br>🔥 ' + r.energie_chauffage.replace(/_/g,' ') : ''}
+                    ${r.nb_appartements ? '<br>🏢 ' + r.nb_appartements + ' appts dans l\'immeuble' : ''}
+                </div>
+            </div>
+        `, { maxWidth: 340 });
+
+        dpeMarkersLayer.addLayer(marker);
+    });
+
+    dpeMarkersLayer.addTo(map);
+}
+
+// ═══════════════════════════════════════════════
+//  STREETS LIST
+// ═══════════════════════════════════════════════
+function renderStreetsList() {
+    const container = document.getElementById('streets-list');
+    const searchTerm = (document.getElementById('street-search').value || '').toLowerCase();
+
+    // Include "— Non classés —" as a virtual street
+    const allStreets = [...currentStreets, { name: '— Non classés —' }];
+
+    const sorted = allStreets
+        .map(s => ({
+            name: s.name,
+            count: getFilteredRecords(currentDPEData[s.name]).length,
+            total: (currentDPEData[s.name] || []).length
+        }))
+        .filter(s => s.total > 0) // Hide streets with no DPE at all
+        .filter(s => !searchTerm || s.name.toLowerCase().includes(searchTerm))
+        .sort((a, b) => b.count - a.count);
+
+    document.getElementById('streets-count').textContent = sorted.length;
+
+    container.innerHTML = sorted.map(s => {
+        const safeName = encodeURIComponent(s.name);
+        const hasData = s.count > 0;
+        return `<div class="street-item ${hasData ? '' : 'no-data'}"
+             data-street="${safeName}"
+             onclick="selectStreet(decodeURIComponent('${safeName}'))">
+            <span class="street-name">${s.name}</span>
+            <span class="street-count ${hasData ? 'has-data' : ''}">${s.count}</span>
+        </div>`;
+    }).join('');
+}
+
+function filterStreetsList() { renderStreetsList(); }
+
+// ═══════════════════════════════════════════════
+//  SELECT STREET
+// ═══════════════════════════════════════════════
+window.selectStreet = function(streetName) {
+    document.querySelectorAll('.street-item').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.street-item').forEach(el => {
+        if (decodeURIComponent(el.dataset.street) === streetName)
+            el.classList.add('active');
+    });
+    activeMapStreet = streetName;
+    const allStreetRecords = currentDPEData[streetName] || [];
+    const records = getFilteredRecords(allStreetRecords);
+    document.getElementById('panel-title').textContent = streetName;
+    document.getElementById('panel-subtitle').textContent =
+        `${records.length} DPE trouvé${records.length !== 1 ? 's' : ''}`;
+    document.getElementById('show-all-btn').classList.remove('active');
+    document.getElementById('prosp-btn').style.display = '';
+    document.getElementById('prosp-modal-subtitle') &&
+        (document.getElementById('prosp-modal-subtitle').textContent =
+            `${allStreetRecords.length} DPE · ${streetName}`);
+    currentSortCol = null;
+    renderDPETable(records);
+    updateDPEMarkers();
+};
+
+window.showAllRecords = function() {
+    activeMapStreet = null;
+    const records = getFilteredRecords(allDPERecords);
+    document.getElementById('panel-title').textContent = 'Tous les DPE';
+    document.getElementById('panel-subtitle').textContent = `${records.length} résultats (filtrés)`;
+    document.getElementById('show-all-btn').classList.add('active');
+    document.getElementById('prosp-btn').style.display = 'none';
+    document.querySelectorAll('.street-item').forEach(el => el.classList.remove('active'));
+    currentSortCol = null;
+    renderDPETable(records);
+    updateDPEMarkers();
+};
+
+// ═══════════════════════════════════════════════
+//  DPE TABLE (sortable)
+// ═══════════════════════════════════════════════
+const TABLE_COLS = [
+    { key: 'adresse',          label: 'Adresse' },
+    { key: 'date_dpe',         label: 'Date' },
+    { key: 'etiquette',        label: 'DPE' },
+    { key: 'surface',          label: 'Surface' },
+    { key: 'lot',              label: 'Lot / Complément' },
+    { key: 'type_batiment',    label: 'Type' },
+    { key: 'energie_chauffage',label: 'Chauffage' },
+];
+
+function renderDPETable(records) {
+    const wrap = document.getElementById('dpe-table-wrap');
+    if (!records.length) {
+        wrap.innerHTML = `<div class="empty-state"><div class="icon">🔍</div>Aucun DPE correspondant aux filtres.</div>`;
+        return;
+    }
+
+    // Sort
+    let sorted = [...records];
+    if (currentSortCol) {
+        sorted.sort((a, b) => {
+            let va = a[currentSortCol], vb = b[currentSortCol];
+            if (['surface','conso_m2','emission_ges','cout_total','cout_chauffage'].includes(currentSortCol)) {
+                va = parseFloat(va) || 0; vb = parseFloat(vb) || 0;
+                return currentSortDir === 'asc' ? va - vb : vb - va;
+            }
+            va = String(va || ''); vb = String(vb || '');
+            return currentSortDir === 'asc' ? va.localeCompare(vb, 'fr') : vb.localeCompare(va, 'fr');
+        });
+    }
+
+    const headers = TABLE_COLS.map(c => {
+        const isSorted = currentSortCol === c.key;
+        const arrow = isSorted ? (currentSortDir === 'asc' ? ' ▲' : ' ▼') : '';
+        return `<th class="${isSorted ? 'sorted' : ''}" data-col="${c.key}">${c.label}<span class="sort-arrow">${arrow}</span></th>`;
+    }).join('');
+
+    const fmtPeriode = p => {
+        if (!p || p === '—') return '—';
+        return p.replace(/_/g, ' ').replace(/BEFORE/i, 'Avant').replace(/AFTER/i, 'Après');
+    };
+    const fmtEnergie = e => {
+        if (!e || e === '—') return '—';
+        return e.replace(/_/g, ' ').toLowerCase().replace(/^./, c => c.toUpperCase());
+    };
+
+    const rows = sorted.map(r => {
+        const cls = /^[A-G]$/.test(r.etiquette) ? `dpe-${r.etiquette}` : '';
+        const clsGes = /^[A-G]$/.test(r.etiquette_ges) ? `dpe-${r.etiquette_ges}` : '';
+        const surf = r.surface > 0 ? `${Math.round(r.surface)} m²` : '—';
+        const conso = r.conso_m2 > 0 ? Math.round(r.conso_m2) : '—';
+        const ges = r.emission_ges > 0 ? Math.round(r.emission_ges) : '—';
+        const cout = r.cout_total > 0 ? `${Math.round(r.cout_total)} €` : '—';
+        const mono = `font-family:'IBM Plex Mono',monospace;font-size:11px`;
+
+        // Building info for étage column
+        let etageStr = r.etage !== '—' ? r.etage : '—';
+        if (r.nb_niveaux) etageStr += ` / ${r.nb_niveaux} niv.`;
+
+        return `<tr>
+            <td style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${r.adresse}">${r.adresse}</td>
+            <td style="${mono}">${r.date_dpe || '—'}</td>
+            <td><span class="dpe-badge ${cls}">${r.etiquette}</span></td>
+            <td>${surf}</td>
+            <td style="font-size:11px;max-width:200px;white-space:normal;word-break:break-word;line-height:1.4">${r.lot}</td>
+            <td style="font-size:11px">${r.type_batiment}</td>
+            <td style="font-size:11px">${fmtEnergie(r.energie_chauffage)}</td>
+        </tr>`;
+    }).join('');
+
+    wrap.innerHTML = `<table><thead><tr>${headers}</tr></thead><tbody>${rows}</tbody></table>`;
+
+    wrap.querySelectorAll('thead th').forEach(th => {
+        th.addEventListener('click', () => {
+            const col = th.dataset.col;
+            if (currentSortCol === col) currentSortDir = currentSortDir === 'asc' ? 'desc' : 'asc';
+            else { currentSortCol = col; currentSortDir = 'asc'; }
+            renderDPETable(records);
+        });
+    });
+}
+
+// ═══════════════════════════════════════════════
+//  STATS + BAR CHART
+// ═══════════════════════════════════════════════
+function updateStats() {
+    const filtered = getFilteredRecords(allDPERecords);
+    const total = filtered.length;
+
+    document.getElementById('stat-total').textContent = total;
+
+    const streetsWithData = Object.entries(currentDPEData)
+        .filter(([k, v]) => k !== '— Non classés —' && getFilteredRecords(v).length > 0).length;
+    document.getElementById('stat-streets').textContent = streetsWithData;
+
+    const surfaces = filtered.map(r => r.surface).filter(s => s > 0 && s < 500);
+    const avg = surfaces.length ? Math.round(surfaces.reduce((a, b) => a + b, 0) / surfaces.length) : 0;
+    document.getElementById('stat-avg-surface').textContent = avg ? `${avg} m²` : '—';
+
+    const passoires = filtered.filter(r => r.etiquette === 'F' || r.etiquette === 'G').length;
+    const pct = total > 0 ? Math.round(passoires / total * 100) : 0;
+    document.getElementById('stat-passoires').textContent = `${passoires} (${pct}%)`;
+
+    // Bar chart
+    const counts = {};
+    'ABCDEFG'.split('').forEach(l => counts[l] = 0);
+    filtered.forEach(r => { if (counts[r.etiquette] !== undefined) counts[r.etiquette]++; });
+    const maxCount = Math.max(1, ...Object.values(counts));
+
+    const barColors = {
+        A: '#22c55e', B: '#4ade80', C: '#84cc16',
+        D: '#eab308', E: '#f97316', F: '#ef4444', G: '#dc2626'
+    };
+
+    document.getElementById('dpe-bar-chart').innerHTML = 'ABCDEFG'.split('').map(l => {
+        const h = Math.max(2, Math.round(counts[l] / maxCount * 44));
+        const active = activeDPEFilter.has(l);
+        return `<div class="dpe-bar-col">
+            <div class="dpe-bar-count">${counts[l]}</div>
+            <div class="dpe-bar" style="height:${h}px;background:${barColors[l]};opacity:${active ? 1 : 0.2}"></div>
+            <div class="dpe-bar-label">${l}</div>
+        </div>`;
+    }).join('');
+}
+
+// ═══════════════════════════════════════════════
+//  EXPORT CSV
+// ═══════════════════════════════════════════════
+window.exportCSV = function() {
+    const records = getFilteredRecords(allDPERecords);
+    if (!records.length) { alert('Lancez d\'abord une recherche.'); return; }
+
+    const headers = ['Adresse','Code_postal','Commune','Date_DPE','Etiquette_DPE','Etiquette_GES','Surface_m2','Conso_kWhEP_m2','Emission_GES_kgCO2_m2','Etage','Nb_niveaux_immeuble','Lot_immeuble','Cage_escalier','Complement_adresse','Nb_appartements','Type_batiment','Periode_construction','Annee_construction','Energie_chauffage','Energie_ECS','Cout_total_EUR','Cout_chauffage_EUR','Qualite_murs','Qualite_fenetres','Qualite_enveloppe','N_DPE','Lat','Lng'];
+    const rows = records.map(r => [
+        r.adresse, r.code_postal, r.commune, r.date_dpe, r.etiquette, r.etiquette_ges,
+        r.surface, r.conso_m2, r.emission_ges, r.etage, r.nb_niveaux, r.lot,
+        r.cage_escalier, r.complement_adr, r.nb_appartements,
+        r.type_batiment, r.periode_construction, r.annee_construction,
+        r.energie_chauffage, r.energie_ecs, r.cout_total, r.cout_chauffage,
+        r.qualite_murs, r.qualite_fenetres, r.qualite_enveloppe, r.numero_dpe, r.lat, r.lng
+    ]);
+    const csv = [headers, ...rows].map(row =>
+        row.map(c => `"${String(c || '').replace(/"/g, '""')}"`).join(',')
+    ).join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `dpe_prospection_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+};
+
+// ═══════════════════════════════════════════════
+//  UTILS
+// ═══════════════════════════════════════════════
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// ═══════════════════════════════════════════════
+//  EXPORT PROSPECTION
+// ═══════════════════════════════════════════════
+
+let _prospSortDir = 'asc';
+
+function _extractNumeroVal(adresse) {
+    const m = (adresse || '').match(/^(\d+)/);
+    return m ? parseInt(m[1]) : 9999;
+}
+
+function _formatProspectionText(records, streetName, sortDir) {
+    const today = new Date().toLocaleDateString('fr-FR');
+    const passoires = records.filter(r => r.etiquette === 'F' || r.etiquette === 'G').length;
+
+    // Grouper par numéro de rue
+    const groups = {};
+    records.forEach(r => {
+        const num = _extractNumeroVal(r.adresse);
+        const key = num === 9999 ? r.adresse : String(num);
+        if (!groups[key]) groups[key] = { num, adresse: r.adresse, items: [] };
+        groups[key].items.push(r);
+    });
+
+    // Trier les groupes
+    const sorted = Object.values(groups).sort((a, b) =>
+        sortDir === 'asc' ? a.num - b.num : b.num - a.num
+    );
+
+    const DPE_FLAG = { F: '⚠', G: '🔴', E: '🟡', D: '🟡', C: '🟢', B: '🟢', A: '🟢' };
+
+    let lines = [];
+    lines.push(`PROSPECTION — ${streetName}`);
+    lines.push(`${today} · ${records.length} DPE · ${passoires} passoire${passoires > 1 ? 's' : ''} F+G`);
+    lines.push('─'.repeat(40));
+    lines.push('');
+
+    sorted.forEach(({ adresse, items }) => {
+        const numStr = _extractNumeroVal(adresse) !== 9999
+            ? `N°${_extractNumeroVal(adresse)}`
+            : adresse.split(' ').slice(0, 2).join(' ');
+
+        // Infos immeuble (depuis le premier record)
+        const r0 = items[0];
+        const typeBat = r0.type_batiment !== '—' ? r0.type_batiment : '';
+        const nbAppts = r0.nb_appartements ? ` · ${r0.nb_appartements} appts` : '';
+        lines.push(`▶ ${numStr} — ${items.length} DPE${typeBat ? ' · ' + typeBat : ''}${nbAppts}`);
+
+        // Trier les appts par étiquette (F/G en premier)
+        const ordre = 'GFEDCBA';
+        items.sort((a, b) => ordre.indexOf(a.etiquette) - ordre.indexOf(b.etiquette));
+
+        items.forEach(r => {
+            const flag = DPE_FLAG[r.etiquette] || '·';
+            const surf = r.surface > 0 ? `${Math.round(r.surface)}m²` : '?m²';
+            const compl = r.complement_logement || '';
+            const code  = r.code_immeuble || '';
+
+            let line = `  ${flag} [${r.etiquette}] ${surf}`;
+            if (compl) line += ` · ${compl}`;
+            lines.push(line);
+            if (code) lines.push(`     Réf: ${code}`);
+        });
+
+        lines.push('');
+    });
+
+    lines.push('─'.repeat(40));
+    lines.push(`Généré par DPE Prospector`);
+    return lines.join('\n');
+}
+
+window.openProspModal = function() {
+    const records = currentDPEData[activeMapStreet] || [];
+    if (!records.length) return;
+    _prospSortDir = 'asc';
+    _refreshProspModal(records);
+    document.getElementById('prosp-modal').style.display = 'flex';
+};
+
+function _refreshProspModal(records) {
+    const text = _formatProspectionText(records, activeMapStreet, _prospSortDir);
+    document.getElementById('prosp-preview').value = text;
+    document.getElementById('prosp-sort-asc').classList.toggle('active', _prospSortDir === 'asc');
+    document.getElementById('prosp-sort-desc').classList.toggle('active', _prospSortDir === 'desc');
+}
+
+window.closeProspModal = function() {
+    document.getElementById('prosp-modal').style.display = 'none';
+};
+
+window.prospSetSort = function(dir) {
+    _prospSortDir = dir;
+    _refreshProspModal(currentDPEData[activeMapStreet] || []);
+};
+
+window.prospCopy = function() {
+    const text = document.getElementById('prosp-preview').value;
+    navigator.clipboard.writeText(text).then(() => {
+        const btn = document.getElementById('prosp-copy-btn');
+        btn.textContent = '✓ Copié !';
+        setTimeout(() => btn.textContent = 'Copier', 1800);
+    });
+};
+
+window.prospDownload = function() {
+    const text = document.getElementById('prosp-preview').value;
+    const safeName = (activeMapStreet || 'prospection').replace(/[^a-z0-9]/gi, '_');
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `prospection_${safeName}.txt`;
+    a.click();
+};
+
+// ═══════════════════════════════════════════════
+//  CACHE (localStorage)
+// ═══════════════════════════════════════════════
+const CACHE_KEY = 'dpe_prosp_parmentier';
+
+function _loadCache() {
+    try { return JSON.parse(localStorage.getItem(CACHE_KEY) || 'null'); }
+    catch(e) { return null; }
+}
+
+function _saveCache() {
+    try {
+        const records = allDPERecords.map(r => { const {raw, ...rest} = r; return rest; });
+        const lastDate = records.reduce((m, r) => r.date_dpe > m ? r.date_dpe : m, '2026-01-01');
+        localStorage.setItem(CACHE_KEY, JSON.stringify({
+            records, streets: currentStreets, lastDate, savedAt: new Date().toISOString(), count: records.length
+        }));
+        _updateCacheInfo();
+    } catch(e) { console.warn('Cache save failed:', e); }
+}
+
+function _clearCache() {
+    localStorage.removeItem(CACHE_KEY);
+    _updateCacheInfo();
+}
+
+function _updateCacheInfo() {
+    const el = document.getElementById('cache-info');
+    if (!el) return;
+    const c = _loadCache();
+    if (c) {
+        const days = Math.floor((Date.now() - new Date(c.savedAt)) / 86400000);
+        const age = days === 0 ? 'aujourd\'hui' : `il y a ${days}j`;
+        el.innerHTML = `💾 ${c.count} DPE en cache · mis à jour ${age} &nbsp;<a href="#" onclick="_clearCache();return false;" style="color:var(--danger);font-size:9px">Vider</a>`;
+    } else {
+        el.textContent = 'Aucun cache — première recherche complète';
+    }
+}
+
+window.quickSearch = async function() {
+    document.getElementById('address-input').value = '141 avenue parmentier paris 75011';
+    document.getElementById('radius-slider').value = 1000;
+    document.getElementById('radius-display').textContent = '1000';
+    document.getElementById('date-from').value = '2026-01-01';
+    const todayStr = new Date().toISOString().slice(0, 10);
+    document.getElementById('date-to').value = todayStr;
+
+    const cache = _loadCache();
+
+    if (!cache) {
+        // No cache: full search, then save
+        window._postSearchHook = _saveCache;
+        startSearch();
+    } else {
+        // Cache hit: restore cached data, then fetch only new records
+        allDPERecords = cache.records;
+        currentStreets = cache.streets;
+
+        setStatus('Cache restauré — mise à jour des nouveaux DPE...', true);
+
+        try {
+            // Fetch new records since lastDate for CP 75011
+            const dateFrom = cache.lastDate;
+            const dateTo = todayStr;
+
+            // Build filter params for 75011
+            const newRaw = await getAllDPEInRadius(48.864353, 2.375397, 1000, dateFrom, dateTo, '75011');
+
+            // Normalize new records (need _fieldMap, may be null after page reload)
+            if (newRaw.length && !_fieldMap) {
+                _fieldMap = _buildFieldMap(newRaw[0]);
+            }
+            const newNormalized = newRaw.map(normalizeRecord);
+
+            // Haversine filter: keep only within 1000m of Parmentier center
+            const newFiltered = newNormalized.filter(r => {
+                if (!r.lat || !r.lng) return true;
+                return _haversineM(48.864353, 2.375397, r.lat, r.lng) <= 1000;
+            });
+
+            // Deduplicate by numero_dpe and merge
+            const existingIds = new Set(allDPERecords.map(r => r.numero_dpe));
+            const toAdd = newFiltered.filter(r => !existingIds.has(r.numero_dpe));
+            allDPERecords = [...allDPERecords, ...toAdd];
+            console.log(`Cache: ${cache.records.length} cached + ${toAdd.length} new = ${allDPERecords.length} total`);
+
+            // Save updated cache
+            _saveCache();
+
+            // Re-match to streets
+            currentDPEData = matchDPEToStreetNormalized(allDPERecords, currentStreets);
+
+            // Show on map
+            if (markerLayer) { map.removeLayer(markerLayer); markerLayer = null; }
+            if (circleLayer) { map.removeLayer(circleLayer); circleLayer = null; }
+
+            markerLayer = L.circleMarker([48.864353, 2.375397], {
+                radius: 10, fillColor: '#c9a84c', color: '#fff',
+                weight: 2.5, opacity: 1, fillOpacity: 1
+            }).addTo(map).bindPopup(`<b style="color:#c9a84c">141 Av. Parmentier, Paris</b>`).openPopup();
+
+            circleLayer = L.circle([48.864353, 2.375397], {
+                radius: 1000, color: '#c9a84c', fillColor: '#c9a84c',
+                fillOpacity: 0.04, weight: 1.5, dashArray: '6,4'
+            }).addTo(map);
+            map.fitBounds(circleLayer.getBounds(), { padding: [50, 50] });
+
+            // Render
+            document.getElementById('streets-section').style.display = 'block';
+            document.getElementById('stats-section').style.display   = 'block';
+            renderStreetsList();
+            updateStats();
+            updateDPEMarkers();
+
+            const streetsWithData = Object.entries(currentDPEData)
+                .filter(([k, v]) => k !== '— Non classés —' && v.length > 0).length;
+            setStatus(`✓ ${allDPERecords.length} DPE (cache + ${toAdd.length} nouveaux) — ${streetsWithData} rues`);
+
+        } catch(err) {
+            console.error('Cache update error:', err);
+            setStatus(`❌ Erreur mise à jour cache: ${err.message}`);
+        }
+    }
+};
+
+// Init: show cache info on page load
+_updateCacheInfo();
+
+}); // end window.onload
+</script>
+
+<!-- MODAL PROSPECTION -->
+<div id="prosp-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.75);align-items:center;justify-content:center">
+    <div style="background:#1a1e2e;border:1px solid #262d42;border-radius:10px;width:min(640px,94vw);max-height:85vh;display:flex;flex-direction:column;overflow:hidden">
+        <!-- Header -->
+        <div style="padding:16px 20px;border-bottom:1px solid #262d42;display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
+            <div>
+                <div style="font-family:'Playfair Display',serif;font-size:16px;color:#e4e4ee">📋 Export Prospection</div>
+                <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#7c84a0;margin-top:2px" id="prosp-modal-subtitle"></div>
+            </div>
+            <button onclick="closeProspModal()" style="background:none;border:none;color:#7c84a0;font-size:20px;cursor:pointer;line-height:1">×</button>
+        </div>
+        <!-- Sort controls -->
+        <div style="padding:10px 20px;border-bottom:1px solid #262d42;display:flex;gap:8px;align-items:center;flex-shrink:0">
+            <span style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#7c84a0">Trier par N° :</span>
+            <button id="prosp-sort-asc"  onclick="prospSetSort('asc')"  class="panel-btn active">↑ Croissant</button>
+            <button id="prosp-sort-desc" onclick="prospSetSort('desc')" class="panel-btn">↓ Décroissant</button>
+        </div>
+        <!-- Preview -->
+        <textarea id="prosp-preview" readonly style="flex:1;background:#0c0e14;color:#e4e4ee;font-family:'IBM Plex Mono',monospace;font-size:12px;line-height:1.7;border:none;padding:16px 20px;resize:none;outline:none;overflow-y:auto;min-height:300px"></textarea>
+        <!-- Footer -->
+        <div style="padding:12px 20px;border-top:1px solid #262d42;display:flex;gap:10px;justify-content:flex-end;flex-shrink:0">
+            <button id="prosp-copy-btn" onclick="prospCopy()" style="background:var(--gold-dim);border:1px solid var(--gold);color:var(--gold);padding:8px 18px;border-radius:5px;font-family:'IBM Plex Mono',monospace;font-size:11px;cursor:pointer">Copier</button>
+            <button onclick="prospDownload()" style="background:var(--gold);border:none;color:#0c0e14;padding:8px 18px;border-radius:5px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;cursor:pointer">↓ Télécharger .txt</button>
+        </div>
+    </div>
+</div>
+
+</body>
+</html>
