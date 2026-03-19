@@ -560,6 +560,36 @@
 </head>
 <body>
 
+<!-- ─────────────── LOCK SCREEN ─────────────── -->
+<div id="lock-screen" style="position:fixed;inset:0;z-index:99999;background:#0c0e14;display:flex;align-items:center;justify-content:center;">
+    <div style="text-align:center;padding:40px 32px;background:#12151f;border:1px solid #262d42;border-radius:12px;width:min(360px,90vw);">
+        <div style="font-family:'Playfair Display',serif;font-size:26px;color:#c9a84c;margin-bottom:6px;">DPE Prospector</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#7c84a0;text-transform:uppercase;letter-spacing:0.12em;margin-bottom:28px;">Accès restreint</div>
+        <input id="lock-input" type="password" placeholder="Code d'accès"
+            style="width:100%;background:#1a1e2e;border:1px solid #262d42;color:#e4e4ee;padding:13px 16px;border-radius:7px;font-family:'IBM Plex Sans',sans-serif;font-size:15px;outline:none;text-align:center;margin-bottom:10px;"
+            onkeydown="if(event.key==='Enter')checkLock()" />
+        <div id="lock-error" style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:#ef4444;min-height:18px;margin-bottom:10px;"></div>
+        <button onclick="checkLock()" style="width:100%;padding:13px;background:linear-gradient(135deg,#c9a84c 0%,#b8942f 100%);border:none;border-radius:7px;color:#0f1117;font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;letter-spacing:0.08em;cursor:pointer;">Entrer</button>
+    </div>
+</div>
+<script>
+(function(){
+    const KEY = 'dpe_unlocked';
+    if (sessionStorage.getItem(KEY) === '1') document.getElementById('lock-screen').style.display = 'none';
+    window.checkLock = function() {
+        const val = document.getElementById('lock-input').value;
+        if (val === 'beauxrepaires') {
+            sessionStorage.setItem(KEY, '1');
+            document.getElementById('lock-screen').style.display = 'none';
+        } else {
+            document.getElementById('lock-error').textContent = 'Code incorrect';
+            document.getElementById('lock-input').value = '';
+            document.getElementById('lock-input').focus();
+        }
+    };
+})();
+</script>
+
 <!-- ─────────────── SIDEBAR ─────────────── -->
 <div id="sidebar">
     <div id="sidebar-header">
