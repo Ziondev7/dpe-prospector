@@ -779,12 +779,13 @@
         </div>
         <div class="crm-status-filter-row" id="crm-filter-row">
             <span class="crm-chip active" data-status="ALL" onclick="toggleCRMFilter(this)">Tous</span>
-            <span class="crm-chip active" data-status="a_visiter" onclick="toggleCRMFilter(this)">🔘 À visiter</span>
-            <span class="crm-chip active" data-status="visite" onclick="toggleCRMFilter(this)">🚪 Visité</span>
-            <span class="crm-chip active" data-status="en_discussion" onclick="toggleCRMFilter(this)">💬 Discussion</span>
-            <span class="crm-chip active" data-status="a_rappeler" onclick="toggleCRMFilter(this)">⏳ Rappeler</span>
-            <span class="crm-chip active" data-status="mandat" onclick="toggleCRMFilter(this)">🤝 Mandat</span>
-            <span class="crm-chip active" data-status="pas_interesse" onclick="toggleCRMFilter(this)">❌ Pas int.</span>
+            <span class="crm-chip" data-status="GARDIEN" onclick="toggleCRMFilter(this)">🔑 Gardien</span>
+            <span class="crm-chip" data-status="a_visiter" onclick="toggleCRMFilter(this)">🔘 À visiter</span>
+            <span class="crm-chip" data-status="visite" onclick="toggleCRMFilter(this)">🚪 Visité</span>
+            <span class="crm-chip" data-status="en_discussion" onclick="toggleCRMFilter(this)">💬 Discussion</span>
+            <span class="crm-chip" data-status="a_rappeler" onclick="toggleCRMFilter(this)">⏳ Rappeler</span>
+            <span class="crm-chip" data-status="mandat" onclick="toggleCRMFilter(this)">🤝 Mandat</span>
+            <span class="crm-chip" data-status="pas_interesse" onclick="toggleCRMFilter(this)">❌ Pas int.</span>
         </div>
         <div id="contacts-list"></div>
     </div>
@@ -2197,7 +2198,18 @@ window.openContactById  = function(id) { openContactForm(crmContacts.find(c => c
 window.deleteContactById = function(id) { if (confirm('Supprimer ce contact ?')) deleteCRMContact(id); };
 let mapMode = 'dpe'; // 'dpe' | 'crm'
 let crmMarkersLayer = null;
-let _crmStatusFilter = 'ALL'; // 'ALL' or one of CRM_STATUTS keys
+let _crmStatusFilter = 'ALL';
+
+function _getCRMFiltered() {
+    if (_crmStatusFilter === 'ALL') return crmContacts;
+    if (_crmStatusFilter === 'GARDIEN') {
+        return crmContacts.filter(c =>
+            (c.nom  || '').toLowerCase().includes('gardien') ||
+            (c.notes|| '').toLowerCase().includes('gardien')
+        );
+    }
+    return crmContacts.filter(c => c.statut === _crmStatusFilter);
+}
 let _currentContactId = null; // id of contact being edited (null = new)
 let _contactFormLat = null;
 let _contactFormLng = null;
@@ -2298,7 +2310,7 @@ function renderCRMMarkers() {
     if (crmMarkersLayer) map.removeLayer(crmMarkersLayer);
     crmMarkersLayer = L.layerGroup();
 
-    crmContacts.forEach(contact => {
+    _getCRMFiltered().forEach(contact => {
         const lat = parseFloat(contact.lat);
         const lng = parseFloat(contact.lng);
         if (!lat || !lng) return;
@@ -2346,6 +2358,7 @@ window.toggleCRMFilter = function(el) {
     document.querySelectorAll('.crm-chip').forEach(c => {
         c.classList.toggle('active', c.dataset.status === _crmStatusFilter);
     });
+    renderCRMMarkers();
     renderContactsList();
 };
 
@@ -2353,9 +2366,7 @@ function renderContactsList() {
     const container = document.getElementById('contacts-list');
     if (!container) return;
 
-    let filtered = _crmStatusFilter === 'ALL'
-        ? crmContacts
-        : crmContacts.filter(c => c.statut === _crmStatusFilter);
+    let filtered = _getCRMFiltered();
 
     document.getElementById('contacts-count').textContent = filtered.length;
 
