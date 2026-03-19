@@ -1673,11 +1673,23 @@ function updateDPEMarkers() {
         : allDPERecords;
     const filtered = getFilteredRecords(base);
 
+    // Calcul dynamique min/max dates pour le mode Date
+    let _dateMinTs = Infinity, _dateMaxTs = -Infinity;
+    if (dpeColorMode === 'date') {
+        filtered.forEach(r => {
+            if (r.date_dpe && r.date_dpe !== '—') {
+                const ts = new Date(r.date_dpe).getTime();
+                if (!isNaN(ts)) { _dateMinTs = Math.min(_dateMinTs, ts); _dateMaxTs = Math.max(_dateMaxTs, ts); }
+            }
+        });
+        _updateDateLegend(_dateMinTs, _dateMaxTs);
+    }
+
     filtered.forEach(r => {
         if (!r.lat || !r.lng || (r.lat === 0 && r.lng === 0)) return;
 
         const color = dpeColorMode === 'date'
-            ? _getDPEDateColor(r.date_dpe)
+            ? _getDPEDateColor(r.date_dpe, _dateMinTs, _dateMaxTs)
             : (DPE_COLORS[r.etiquette] || '#888');
         const marker = L.circleMarker([r.lat, r.lng], {
             radius: 5,
@@ -2219,15 +2231,28 @@ window.deleteContactById = function(id) { if (confirm('Supprimer ce contact ?'))
 let mapMode = 'dpe'; // 'dpe' | 'crm'
 let dpeColorMode = 'label'; // 'label' | 'date'
 
-function _getDPEDateColor(dateStr) {
+const DATE_COLORS = ['#6b7280','#ef4444','#f97316','#eab308','#84cc16','#22c55e']; // oldest→newest
+
+function _getDPEDateColor(dateStr, minTs, maxTs) {
     if (!dateStr || dateStr === '—') return '#6b7280';
-    const months = (new Date() - new Date(dateStr)) / (1000 * 60 * 60 * 24 * 30);
-    if (months < 1)  return '#22c55e';
-    if (months < 3)  return '#84cc16';
-    if (months < 6)  return '#eab308';
-    if (months < 12) return '#f97316';
-    if (months < 24) return '#ef4444';
-    return '#6b7280';
+    const ts = new Date(dateStr).getTime();
+    if (isNaN(ts)) return '#6b7280';
+    if (maxTs === minTs) return '#22c55e';
+    const ratio = (ts - minTs) / (maxTs - minTs); // 0=oldest, 1=newest
+    return DATE_COLORS[Math.min(5, Math.floor(ratio * 6))];
+}
+
+function _updateDateLegend(minTs, maxTs) {
+    const el = document.getElementById('date-legend');
+    if (!el) return;
+    const range = maxTs - minTs;
+    const fmt = ts => new Date(ts).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: '2-digit' });
+    const rows = DATE_COLORS.map((c, i) => {
+        const from = minTs + (i / 6) * range;
+        const to   = minTs + ((i + 1) / 6) * range;
+        return `<div><span style="color:${c}">⬤</span> ${fmt(from)} – ${fmt(to)}</div>`;
+    }).reverse().join('');
+    el.innerHTML = `<div style="color:#c9a84c;font-weight:600;margin-bottom:5px;letter-spacing:0.08em">ANCIENNETÉ</div>${rows}`;
 }
 
 window.setDPEColorMode = function(mode) {
