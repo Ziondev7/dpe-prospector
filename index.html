@@ -555,7 +555,82 @@
             .stats-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
             .stat-card .val { font-size: 22px; }
             #dpe-table-wrap { overflow-x: auto; }
+
+            /* TAB: Contacts — contacts sidebar section */
+            body.tab-contacts #sidebar {
+                display: flex;
+                flex-direction: column;
+                height: calc(100dvh - 62px);
+                overflow-y: auto;
+            }
+            body.tab-contacts #sidebar-header,
+            body.tab-contacts #status,
+            body.tab-contacts #local-tip,
+            body.tab-contacts .section,
+            body.tab-contacts #stats-section,
+            body.tab-contacts #streets-section { display: none !important; }
+            body.tab-contacts #contacts-section { display: block !important; }
         }
+
+        /* CRM */
+        .crm-status-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            font-weight: 500;
+        }
+        .map-mode-toggle {
+            position: absolute;
+            top: 80px;
+            right: 10px;
+            z-index: 1000;
+            display: flex;
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            overflow: hidden;
+        }
+        .mmt-btn {
+            padding: 6px 14px;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            cursor: pointer;
+            transition: all 0.15s;
+            white-space: nowrap;
+        }
+        .mmt-btn.active {
+            background: var(--gold-dim);
+            color: var(--gold);
+        }
+        .contact-item {
+            padding: 10px 16px;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .contact-item:hover { background: var(--card); }
+        .contact-name { font-size: 13px; color: var(--text); font-weight: 500; }
+        .contact-addr { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+        #contacts-section { display: none; }
+        .crm-status-filter-row { display: flex; gap: 5px; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid var(--border); }
+        .crm-chip {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            padding: 3px 9px;
+            border-radius: 10px;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background: var(--card);
+            color: var(--text-muted);
+            transition: all 0.15s;
+            user-select: none;
+        }
+        .crm-chip.active { color: var(--text); border-color: var(--gold); background: var(--gold-dim); }
     </style>
 </head>
 <body>
@@ -695,11 +770,34 @@
         </div>
         <div id="streets-list"></div>
     </div>
+
+    <!-- CONTACTS CRM -->
+    <div id="contacts-section">
+        <div class="streets-header">
+            <span>Contacts (<span id="contacts-count">0</span>)</span>
+            <button onclick="openContactForm(null, null, null, null)" style="background:var(--gold-dim);border:1px solid var(--gold);color:var(--gold);padding:4px 10px;border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:10px;cursor:pointer;">＋ Nouveau</button>
+        </div>
+        <div class="crm-status-filter-row" id="crm-filter-row">
+            <span class="crm-chip active" data-status="ALL" onclick="toggleCRMFilter(this)">Tous</span>
+            <span class="crm-chip active" data-status="a_visiter" onclick="toggleCRMFilter(this)">🔘 À visiter</span>
+            <span class="crm-chip active" data-status="visite" onclick="toggleCRMFilter(this)">🚪 Visité</span>
+            <span class="crm-chip active" data-status="en_discussion" onclick="toggleCRMFilter(this)">💬 Discussion</span>
+            <span class="crm-chip active" data-status="a_rappeler" onclick="toggleCRMFilter(this)">⏳ Rappeler</span>
+            <span class="crm-chip active" data-status="mandat" onclick="toggleCRMFilter(this)">🤝 Mandat</span>
+            <span class="crm-chip active" data-status="pas_interesse" onclick="toggleCRMFilter(this)">❌ Pas int.</span>
+        </div>
+        <div id="contacts-list"></div>
+    </div>
 </div>
 
 <!-- ─────────────── MAIN ─────────────── -->
 <div id="main">
-    <div id="map"></div>
+    <div id="map" style="position:relative;">
+        <div class="map-mode-toggle" id="map-mode-toggle">
+            <button class="mmt-btn active" id="mmt-dpe" onclick="setMapMode('dpe')">🔵 DPE</button>
+            <button class="mmt-btn" id="mmt-prosp" onclick="setMapMode('crm')">👤 Prospection</button>
+        </div>
+    </div>
     <div id="panel-resizer"></div>
     <div id="bottom-panel">
         <div id="panel-header">
@@ -1582,6 +1680,7 @@ function updateDPEMarkers() {
         if (r.lot && r.lot !== '—') locParts.push(r.lot);
         const locStr = locParts.join(' · ');
 
+        const dpeRecordRef = r;
         marker.bindPopup(`
             <div style="font-size:12px;line-height:1.6;min-width:240px">
                 <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
@@ -1598,6 +1697,9 @@ function updateDPEMarkers() {
                     ${r.type_batiment !== '—' ? r.type_batiment + ' · ' : ''}${periode ? periode + ' · ' : ''}${r.date_dpe}
                     ${r.energie_chauffage !== '—' ? '<br>🔥 ' + r.energie_chauffage.replace(/_/g,' ') : ''}
                     ${r.nb_appartements ? '<br>🏢 ' + r.nb_appartements + ' appts dans l\'immeuble' : ''}
+                </div>
+                <div style="margin-top:8px;border-top:1px solid #262d42;padding-top:8px">
+                    <button onclick="openContactForm(null,${r.lat},${r.lng},allDPERecords.find(x=>x.numero_dpe==='${r.numero_dpe.replace(/'/g,"\\'")}'))" style="background:rgba(201,168,76,0.15);border:1px solid #c9a84c;color:#c9a84c;padding:4px 12px;border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:10px;cursor:pointer;width:100%">＋ Prospection</button>
                 </div>
             </div>
         `, { maxWidth: 340 });
@@ -2086,6 +2188,296 @@ window.quickSearch = async function() {
 _updateCacheInfo();
 
 // ═══════════════════════════════════════════════
+//  CRM — GLOBALS & CONSTANTS
+// ═══════════════════════════════════════════════
+const CRM_API = 'https://script.google.com/macros/s/AKfycbx2A6ZE4zUvoajMsecOX9pWEI2xwqKow_iVJhvZqBRTMP0aWRVTaMOO99w4py9pgfO8bA/exec';
+const CRM_TOKEN = 'beauxrepaires2026crm';
+let crmContacts = [];
+let mapMode = 'dpe'; // 'dpe' | 'crm'
+let crmMarkersLayer = null;
+let _crmStatusFilter = 'ALL'; // 'ALL' or one of CRM_STATUTS keys
+let _currentContactId = null; // id of contact being edited (null = new)
+let _contactFormLat = null;
+let _contactFormLng = null;
+let _contactFormDpeId = null;
+
+const CRM_STATUTS = {
+    'a_visiter':     { label: 'À visiter',     color: '#6b7280', emoji: '🔘' },
+    'visite':        { label: 'Visité',         color: '#3b82f6', emoji: '🚪' },
+    'en_discussion': { label: 'En discussion',  color: '#f97316', emoji: '💬' },
+    'a_rappeler':    { label: 'À rappeler',     color: '#eab308', emoji: '⏳' },
+    'mandat':        { label: 'Mandat',         color: '#22c55e', emoji: '🤝' },
+    'pas_interesse': { label: 'Pas intéressé',  color: '#ef4444', emoji: '❌' },
+};
+
+// ═══════════════════════════════════════════════
+//  CRM — API FUNCTIONS
+// ═══════════════════════════════════════════════
+async function loadCRMContacts() {
+    try {
+        const res = await fetch(`${CRM_API}?token=${CRM_TOKEN}`);
+        const data = await res.json();
+        crmContacts = data.contacts || [];
+        renderCRMMarkers();
+        renderContactsList();
+        _updateContactsBadge();
+    } catch(e) {
+        console.warn('CRM load error:', e);
+    }
+}
+
+async function saveCRMContact(contact) {
+    const res = await fetch(CRM_API, {
+        method: 'POST',
+        body: JSON.stringify({ token: CRM_TOKEN, action: 'upsert', contact })
+    });
+    const data = await res.json();
+    if (data.id) contact.id = data.id;
+    const idx = crmContacts.findIndex(c => c.id === contact.id);
+    if (idx >= 0) crmContacts[idx] = contact;
+    else crmContacts.push(contact);
+    renderCRMMarkers();
+    renderContactsList();
+    _updateContactsBadge();
+    return data;
+}
+
+async function deleteCRMContact(id) {
+    await fetch(CRM_API, {
+        method: 'POST',
+        body: JSON.stringify({ token: CRM_TOKEN, action: 'delete', id })
+    });
+    crmContacts = crmContacts.filter(c => c.id !== id);
+    renderCRMMarkers();
+    renderContactsList();
+    _updateContactsBadge();
+}
+
+// ═══════════════════════════════════════════════
+//  CRM — MAP MODE TOGGLE
+// ═══════════════════════════════════════════════
+window.setMapMode = function(mode) {
+    mapMode = mode;
+    document.getElementById('mmt-dpe').classList.toggle('active', mode === 'dpe');
+    document.getElementById('mmt-prosp').classList.toggle('active', mode === 'crm');
+
+    if (mode === 'dpe') {
+        // Show DPE markers, hide CRM markers
+        if (dpeMarkersLayer) dpeMarkersLayer.addTo(map);
+        if (crmMarkersLayer) map.removeLayer(crmMarkersLayer);
+        // Show DPE-related sidebar, hide contacts
+        if (window.innerWidth > 768) {
+            document.getElementById('contacts-section').style.display = 'none';
+        }
+        // Remove map click handler for CRM
+        map.off('click', _onMapClickCRM);
+    } else {
+        // Hide DPE markers, show CRM markers
+        if (dpeMarkersLayer) map.removeLayer(dpeMarkersLayer);
+        renderCRMMarkers();
+        // Show contacts in sidebar on desktop
+        if (window.innerWidth > 768) {
+            document.getElementById('contacts-section').style.display = 'block';
+        }
+        // Add map click handler
+        map.on('click', _onMapClickCRM);
+    }
+};
+
+function _onMapClickCRM(e) {
+    if (mapMode !== 'crm') return;
+    openContactForm(null, e.latlng.lat, e.latlng.lng, null);
+}
+
+// ═══════════════════════════════════════════════
+//  CRM — MARKERS
+// ═══════════════════════════════════════════════
+function renderCRMMarkers() {
+    if (crmMarkersLayer) map.removeLayer(crmMarkersLayer);
+    crmMarkersLayer = L.layerGroup();
+
+    crmContacts.forEach(contact => {
+        const lat = parseFloat(contact.lat);
+        const lng = parseFloat(contact.lng);
+        if (!lat || !lng) return;
+
+        const statut = CRM_STATUTS[contact.statut] || CRM_STATUTS['a_visiter'];
+        const marker = L.circleMarker([lat, lng], {
+            radius: 10,
+            fillColor: statut.color,
+            color: '#fff',
+            weight: 2,
+            fillOpacity: 0.85
+        });
+
+        const nomDisplay = contact.nom || contact.adresse || '—';
+        const statutBadge = `<span style="background:${statut.color}22;color:${statut.color};padding:2px 7px;border-radius:8px;font-size:11px;font-family:'IBM Plex Mono',monospace">${statut.emoji} ${statut.label}</span>`;
+        marker.bindPopup(`
+            <div style="font-size:12px;line-height:1.6;min-width:220px">
+                <div style="font-weight:600;font-size:14px;color:#e4e4ee;margin-bottom:6px">${nomDisplay}</div>
+                ${contact.adresse ? `<div style="color:#a0a8c0;font-size:11px">${contact.adresse}</div>` : ''}
+                ${contact.complement ? `<div style="color:#7c84a0;font-size:11px">${contact.complement}</div>` : ''}
+                <div style="margin:6px 0">${statutBadge}</div>
+                ${contact.telephone ? `<div style="color:#7c84a0;font-size:11px">📞 ${contact.telephone}</div>` : ''}
+                ${contact.date_visite ? `<div style="color:#7c84a0;font-size:11px">📅 ${contact.date_visite}</div>` : ''}
+                ${contact.notes ? `<div style="color:#a0a8c0;font-size:11px;margin-top:4px;border-top:1px solid #262d42;padding-top:4px">${contact.notes}</div>` : ''}
+                <div style="margin-top:8px">
+                    <button onclick="openContactForm(crmContacts.find(c=>c.id==='${contact.id}'))" style="background:var(--gold-dim);border:1px solid var(--gold);color:var(--gold);padding:4px 12px;border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:10px;cursor:pointer">✏️ Modifier</button>
+                </div>
+            </div>
+        `, { maxWidth: 300 });
+
+        crmMarkersLayer.addLayer(marker);
+    });
+
+    if (mapMode === 'crm') {
+        crmMarkersLayer.addTo(map);
+    }
+}
+
+// ═══════════════════════════════════════════════
+//  CRM — CONTACTS LIST
+// ═══════════════════════════════════════════════
+window.toggleCRMFilter = function(el) {
+    _crmStatusFilter = el.dataset.status;
+    document.querySelectorAll('.crm-chip').forEach(c => {
+        c.classList.toggle('active', c.dataset.status === _crmStatusFilter);
+    });
+    renderContactsList();
+};
+
+function renderContactsList() {
+    const container = document.getElementById('contacts-list');
+    if (!container) return;
+
+    let filtered = _crmStatusFilter === 'ALL'
+        ? crmContacts
+        : crmContacts.filter(c => c.statut === _crmStatusFilter);
+
+    document.getElementById('contacts-count').textContent = filtered.length;
+
+    if (!filtered.length) {
+        container.innerHTML = '<div class="empty-state" style="padding:30px 16px"><div class="icon">👤</div>Aucun contact' + (_crmStatusFilter !== 'ALL' ? ' pour ce statut' : '') + '.</div>';
+        return;
+    }
+
+    container.innerHTML = filtered.map(contact => {
+        const statut = CRM_STATUTS[contact.statut] || CRM_STATUTS['a_visiter'];
+        const nomDisplay = contact.nom || contact.adresse || '—';
+        const adresseDisplay = contact.nom ? contact.adresse : contact.complement;
+        return `<div class="contact-item" onclick="openContactForm(crmContacts.find(c=>c.id==='${contact.id}'))">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start">
+                <div class="contact-name">${nomDisplay}</div>
+                <span class="crm-status-badge" style="background:${statut.color}22;color:${statut.color};flex-shrink:0;margin-left:8px">${statut.emoji} ${statut.label}</span>
+            </div>
+            ${adresseDisplay ? `<div class="contact-addr">${adresseDisplay}</div>` : ''}
+            ${contact.complement && contact.nom ? `<div class="contact-addr">${contact.complement}</div>` : ''}
+        </div>`;
+    }).join('');
+}
+
+function _updateContactsBadge() {
+    const badge = document.getElementById('m-badge-contacts');
+    if (badge) {
+        const n = crmContacts.length;
+        badge.textContent = n || '';
+        badge.classList.toggle('show', n > 0);
+    }
+}
+
+// ═══════════════════════════════════════════════
+//  CRM — CONTACT FORM
+// ═══════════════════════════════════════════════
+window.openContactForm = function(contact, lat, lng, dpeRecord) {
+    _currentContactId = contact ? contact.id : null;
+    _contactFormLat = lat || (contact && contact.lat) || null;
+    _contactFormLng = lng || (contact && contact.lng) || null;
+    _contactFormDpeId = dpeRecord ? dpeRecord.numero_dpe : (contact && contact.dpe_id) || null;
+
+    // Set title
+    document.getElementById('contact-modal-title').textContent =
+        contact ? 'Modifier le contact' : 'Nouveau contact';
+
+    // Show/hide delete button
+    document.getElementById('cf-delete-btn').style.display = contact ? 'block' : 'none';
+
+    // Fill fields
+    document.getElementById('cf-adresse').value =
+        contact ? (contact.adresse || '') : (dpeRecord ? dpeRecord.adresse : '');
+    document.getElementById('cf-complement').value =
+        contact ? (contact.complement || '') : (dpeRecord ? (dpeRecord.complement_logement || '') : '');
+    document.getElementById('cf-nom').value = contact ? (contact.nom || '') : '';
+    document.getElementById('cf-telephone').value = contact ? (contact.telephone || '') : '';
+    document.getElementById('cf-statut').value = contact ? (contact.statut || 'a_visiter') : 'a_visiter';
+    document.getElementById('cf-notes').value = contact ? (contact.notes || '') : '';
+    document.getElementById('cf-date-visite').value =
+        contact && contact.date_visite
+            ? contact.date_visite
+            : new Date().toISOString().slice(0, 10);
+
+    document.getElementById('contact-modal').style.display = 'flex';
+};
+
+window.closeContactForm = function() {
+    document.getElementById('contact-modal').style.display = 'none';
+    _currentContactId = null;
+    _contactFormLat = null;
+    _contactFormLng = null;
+    _contactFormDpeId = null;
+};
+
+window.contactFormSave = async function() {
+    const contact = {
+        adresse:     document.getElementById('cf-adresse').value.trim(),
+        complement:  document.getElementById('cf-complement').value.trim(),
+        nom:         document.getElementById('cf-nom').value.trim(),
+        telephone:   document.getElementById('cf-telephone').value.trim(),
+        statut:      document.getElementById('cf-statut').value,
+        notes:       document.getElementById('cf-notes').value.trim(),
+        date_visite: document.getElementById('cf-date-visite').value,
+        lat:         _contactFormLat,
+        lng:         _contactFormLng,
+        dpe_id:      _contactFormDpeId,
+        updated_at:  new Date().toISOString(),
+    };
+
+    if (_currentContactId) {
+        contact.id = _currentContactId;
+    } else {
+        contact.created_at = new Date().toISOString();
+    }
+
+    const saveBtn = document.querySelector('#contact-modal button[onclick="contactFormSave()"]');
+    if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Sauvegarde…'; }
+
+    try {
+        await saveCRMContact(contact);
+        closeContactForm();
+    } catch(e) {
+        alert('Erreur lors de la sauvegarde : ' + e.message);
+    } finally {
+        if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Sauvegarder'; }
+    }
+};
+
+window.contactFormDelete = async function() {
+    if (!_currentContactId) return;
+    if (!confirm('Supprimer ce contact ?')) return;
+    try {
+        await deleteCRMContact(_currentContactId);
+        closeContactForm();
+    } catch(e) {
+        alert('Erreur lors de la suppression : ' + e.message);
+    }
+};
+
+// ═══════════════════════════════════════════════
+//  MODIFY updateDPEMarkers TO ADD "+ Prospection" BUTTON
+// ═══════════════════════════════════════════════
+// Patch: wrap openContactForm call in DPE popup
+// (done inline in the popup HTML via a global reference)
+
+// ═══════════════════════════════════════════════
 //  MOBILE TAB NAVIGATION
 // ═══════════════════════════════════════════════
 window.switchMobileTab = function(tab) {
@@ -2100,7 +2492,7 @@ window.switchMobileTab = function(tab) {
 };
 
 function _mobileUpdateBadges() {
-    if (window.innerWidth > 768) {
+    if (window.innerWidth <= 768) {
         const streetsCount = Object.keys(currentDPEData).filter(k => k !== '— Non classés —' && currentDPEData[k].length > 0).length;
         const tableCount = allDPERecords.length;
         const bStreets = document.getElementById('m-badge-streets');
@@ -2112,6 +2504,9 @@ function _mobileUpdateBadges() {
 
 // Default mobile tab
 if (window.innerWidth <= 768) document.body.className = 'tab-search';
+
+// Load CRM contacts on startup
+loadCRMContacts();
 
 }); // end window.onload
 </script>
@@ -2143,6 +2538,65 @@ if (window.innerWidth <= 768) document.body.className = 'tab-search';
     </div>
 </div>
 
+<!-- ─────────────── CONTACT FORM MODAL ─────────────── -->
+<div id="contact-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.75);align-items:center;justify-content:center">
+    <div style="background:#1a1e2e;border:1px solid #262d42;border-radius:10px;width:min(520px,96vw);max-height:90vh;display:flex;flex-direction:column;overflow:hidden">
+        <!-- Header -->
+        <div style="padding:16px 20px;border-bottom:1px solid #262d42;display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
+            <div style="font-family:'Playfair Display',serif;font-size:16px;color:#e4e4ee" id="contact-modal-title">Nouveau contact</div>
+            <button onclick="closeContactForm()" style="background:none;border:none;color:#7c84a0;font-size:20px;cursor:pointer;line-height:1">×</button>
+        </div>
+        <!-- Body -->
+        <div style="padding:18px 20px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:12px;">
+            <div>
+                <label style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#7c84a0;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.08em">Adresse</label>
+                <input type="text" id="cf-adresse" placeholder="Ex: 15 rue de Rivoli, Paris" style="margin-bottom:0" />
+            </div>
+            <div>
+                <label style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#7c84a0;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.08em">Complément (bât., étage, appt…)</label>
+                <input type="text" id="cf-complement" placeholder="Ex: Bat. B, Étage 3, Porte droite" style="margin-bottom:0" />
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                <div>
+                    <label style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#7c84a0;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.08em">Nom / Propriétaire</label>
+                    <input type="text" id="cf-nom" placeholder="Nom" style="margin-bottom:0" />
+                </div>
+                <div>
+                    <label style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#7c84a0;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.08em">Téléphone</label>
+                    <input type="text" id="cf-telephone" placeholder="06 …" style="margin-bottom:0" />
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+                <div>
+                    <label style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#7c84a0;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.08em">Statut</label>
+                    <select id="cf-statut" style="width:100%;background:#1a1e2e;border:1px solid #262d42;color:#e4e4ee;padding:10px 14px;border-radius:6px;font-family:'IBM Plex Sans',sans-serif;font-size:13px;outline:none;margin-bottom:0">
+                        <option value="a_visiter">🔘 À visiter</option>
+                        <option value="visite">🚪 Visité</option>
+                        <option value="en_discussion">💬 En discussion</option>
+                        <option value="a_rappeler">⏳ À rappeler</option>
+                        <option value="mandat">🤝 Mandat</option>
+                        <option value="pas_interesse">❌ Pas intéressé</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#7c84a0;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.08em">Date de visite</label>
+                    <input type="date" id="cf-date-visite" style="margin-bottom:0" />
+                </div>
+            </div>
+            <div>
+                <label style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:#7c84a0;display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.08em">Notes</label>
+                <textarea id="cf-notes" rows="3" style="width:100%;background:#1a1e2e;border:1px solid #262d42;color:#e4e4ee;padding:10px 14px;border-radius:6px;font-family:'IBM Plex Sans',sans-serif;font-size:13px;outline:none;resize:vertical;" placeholder="Notes libres…"></textarea>
+            </div>
+        </div>
+        <!-- Footer -->
+        <div style="padding:12px 20px;border-top:1px solid #262d42;display:flex;gap:10px;justify-content:flex-end;flex-shrink:0">
+            <button id="cf-delete-btn" onclick="contactFormDelete()" style="display:none;background:rgba(239,68,68,0.12);border:1px solid #ef4444;color:#ef4444;padding:8px 16px;border-radius:5px;font-family:'IBM Plex Mono',monospace;font-size:11px;cursor:pointer;margin-right:auto">🗑 Supprimer</button>
+            <button onclick="closeContactForm()" style="background:none;border:1px solid #262d42;color:#7c84a0;padding:8px 16px;border-radius:5px;font-family:'IBM Plex Mono',monospace;font-size:11px;cursor:pointer">Annuler</button>
+            <button onclick="contactFormSave()" style="background:linear-gradient(135deg,#c9a84c 0%,#b8942f 100%);border:none;color:#0f1117;padding:8px 20px;border-radius:5px;font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600;cursor:pointer">Sauvegarder</button>
+        </div>
+    </div>
+</div>
+
 <!-- ─────────────── MOBILE NAV ─────────────── -->
 <nav id="mobile-nav">
     <button class="m-tab active" data-tab="search" onclick="switchMobileTab('search')">
@@ -2162,6 +2616,11 @@ if (window.innerWidth <= 768) document.body.className = 'tab-search';
         <span class="m-icon">📊</span>
         <span class="m-label">Tableau</span>
         <span class="m-badge" id="m-badge-table"></span>
+    </button>
+    <button class="m-tab" data-tab="contacts" onclick="switchMobileTab('contacts')">
+        <span class="m-icon">👤</span>
+        <span class="m-label">Contacts</span>
+        <span class="m-badge" id="m-badge-contacts"></span>
     </button>
 </nav>
 
