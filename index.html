@@ -2222,6 +2222,7 @@ window.quickSearch = async function() {
             // Render
             document.getElementById('streets-section').style.display = 'block';
             document.getElementById('stats-section').style.display   = 'block';
+            _buildMultiDPEKeys(allDPERecords);
             renderStreetsList();
             updateStats();
             updateDPEMarkers();
@@ -2290,15 +2291,16 @@ let _multiDPEFilter = false;
 let _multiDPEKeys   = new Set(); // "adresse|surface" keys with 2+ DPEs
 
 function _buildMultiDPEKeys(records) {
-    const counts = {};
+    const groups = {};
     records.forEach(r => {
         const surf = Math.round(parseFloat(r.surface) || 0);
         if (!surf) return;
         const key = (r.adresse || '').trim().toLowerCase() + '|' + surf;
-        counts[key] = (counts[key] || 0) + 1;
+        if (!groups[key]) groups[key] = new Set();
+        groups[key].add(r.date_dpe || '');
     });
     _multiDPEKeys = new Set(
-        Object.entries(counts).filter(([, n]) => n >= 2).map(([k]) => k)
+        Object.entries(groups).filter(([, dates]) => dates.size >= 2).map(([k]) => k)
     );
     // Show/update chip
     const chip = document.getElementById('multi-dpe-chip');
