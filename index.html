@@ -828,6 +828,7 @@
             <div class="map-mode-toggle" id="map-mode-toggle">
                 <button class="mmt-btn active" id="mmt-dpe" onclick="setMapMode('dpe')">🔵 DPE</button>
                 <button class="mmt-btn" id="mmt-prosp" onclick="setMapMode('crm')">👤 Prospection</button>
+                <button class="mmt-btn" id="mmt-dvf" onclick="setMapMode('dvf')">💶 Ventes</button>
             </div>
             <!-- Couleur DPE vs Date (visible seulement en mode DPE) -->
             <div class="map-mode-toggle" id="dpe-color-toggle">
@@ -887,6 +888,12 @@ let markerLayer   = null;
 let circleLayer   = null;
 let dpeMarkersLayer = null;
 let currentDPEData  = {};
+
+// Contexte de la recherche en cours (partagé par DPE / DVF)
+let _searchLat      = 48.870456;
+let _searchLng      = 2.370521;
+let _searchRadius   = 1000;
+let _searchCommunes = ['75110', '75111']; // codes INSEE des communes à couvrir
 let allDPERecords   = [];
 let activeMapStreet = null; // rue sélectionnée pour filtrer la carte
 let currentStreets  = [];
@@ -1591,8 +1598,15 @@ async function startSearch() {
     try {
         // ── 1. Geocode ──
         setStatus('Géolocalisation...', true);
-        const { lat, lng, label, postcode } = await geocodeAddress(address);
-        console.log(`📍 Géocodé: ${label} | CP: ${postcode}`);
+        const { lat, lng, label, postcode, citycode } = await geocodeAddress(address);
+        console.log(`📍 Géocodé: ${label} | CP: ${postcode} | INSEE: ${citycode}`);
+
+        // Stocker le contexte de recherche pour DVF
+        _searchLat    = lat;
+        _searchLng    = lng;
+        _searchRadius = radius;
+        _searchCommunes = _communesForSearch(citycode, lat, lng);
+        _dvfLoaded = false; dvfData = [];
 
         markerLayer = L.circleMarker([lat, lng], {
             radius: 10, fillColor: '#c9a84c', color: '#fff',
@@ -2171,6 +2185,10 @@ window.quickSearch = async function() {
     document.getElementById('radius-slider').value = 1000;
     document.getElementById('radius-display').textContent = '1000';
     document.getElementById('date-from').value = '2026-01-01';
+    // Contexte pour DVF
+    _searchLat = 48.870456; _searchLng = 2.370521;
+    _searchRadius = 1000; _searchCommunes = ['75110', '75111'];
+    _dvfLoaded = false; dvfData = [];
     const todayStr = new Date().toISOString().slice(0, 10);
     document.getElementById('date-to').value = todayStr;
 
@@ -2259,6 +2277,231 @@ _updateCacheInfo();
 // Auto-lancer la recherche favorite si déjà déverrouillé
 if (sessionStorage.getItem('dpe_unlocked') === '1') {
     quickSearch();
+}
+
+// ═══════════════════════════════════════════════
+//  DVF — VENTES IMMOBILIÈRES
+// ═══════════════════════════════════════════════
+
+let dvfData         = [];
+let dvfMarkersLayer = null;
+let _dvfLoaded      = false; // pour éviter de recharger si déjà fait
+
+// Échelle de prix €/m² (adaptée Paris)
+const DVF_SCALE = [
+    { max: 5000,      color: '#22c55e', label: '< 5 000 €/m²' },
+    { max: 7000,      color: '#84cc16', label: '5 000 – 7 000 €/m²' },
+    { max: 9000,      color: '#eab308', label: '7 000 – 9 000 €/m²' },
+    { max: 11000,     color: '#f97316', label: '9 000 – 11 000 €/m²' },
+    { max: Infinity,  color: '#ef4444', label: '> 11 000 €/m²' },
+];
+
+function _dvfColor(prixM2) {
+    if (!prixM2 || prixM2 <= 0) return '#6b7280';
+    for (const s of DVF_SCALE) if (prixM2 < s.max) return s.color;
+    return '#ef4444';
+}
+
+// Détermine les codes INSEE à fetcher pour un rayon donné
+function _communesForSearch(citycode, lat, lng) {
+    if (!citycode) return [];
+    const dept = citycode.slice(0, 2);
+    const communes = [citycode];
+    // Pour Paris (75101-75120): ajouter les arrondissements adjacents
+    if (dept === '75' && citycode.startsWith('751')) {
+        const num = parseInt(citycode.slice(3));
+        if (num > 1)  communes.push('75' + String(num - 1).padStart(3, '0'));
+        if (num < 20) communes.push('75' + String(num + 1).padStart(3, '0'));
+    }
+    return [...new Set(communes)];
+}
+
+function _parseDVFCSV(text) {
+    const lines = text.split('\n');
+    const headers = lines[0].split(',').map(h => h.trim());
+    const results = [];
+    for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        const vals = line.split(',');
+        const obj = {};
+        headers.forEach((h, idx) => { obj[h] = (vals[idx] || '').trim(); });
+        if (obj.latitude && obj.longitude && parseFloat(obj.latitude)) results.push(obj);
+    }
+    return results;
+}
+
+window.loadDVFData = async function() {
+    if (!_searchLat || !_searchLng) { setStatus('⚠ Lancez d\'abord une recherche DPE.'); return; }
+
+    const dateFrom = document.getElementById('date-from').value || '2024-01-01';
+    const dateTo   = document.getElementById('date-to').value   || new Date().toISOString().slice(0,10);
+    const yearFrom = Math.max(2020, parseInt(dateFrom.slice(0,4)));
+    const yearTo   = Math.min(2025, parseInt(dateTo.slice(0,4)));
+
+    // DVF ne couvre que les 2 dernières années complètes + en cours si dans la plage
+    // On prend au max 3 ans pour ne pas surcharger
+    const years = [];
+    for (let y = Math.max(yearFrom, yearTo - 2); y <= yearTo; y++) years.push(y);
+
+    const communes = _searchCommunes.length ? _searchCommunes : ['75110','75111'];
+
+    dvfData = [];
+    let totalFetched = 0;
+
+    for (const year of years) {
+        for (const code of communes) {
+            const dept = code.startsWith('75') ? '75' : code.slice(0,2);
+            const url = `https://files.data.gouv.fr/geo-dvf/latest/csv/${year}/communes/${dept}/${code}.csv`;
+            setStatus(`Chargement DVF ${code} / ${year}…`, true);
+            try {
+                const res = await fetch(url);
+                if (!res.ok) continue;
+                const text = await res.text();
+                const records = _parseDVFCSV(text);
+                totalFetched += records.length;
+
+                // Filtre date
+                const dated = records.filter(r =>
+                    (!dateFrom || r.date_mutation >= dateFrom) &&
+                    (!dateTo   || r.date_mutation <= dateTo)
+                );
+                // Filtre haversine
+                const inRadius = dated.filter(r => {
+                    const la = parseFloat(r.latitude), lo = parseFloat(r.longitude);
+                    return la && lo && _haversineM(_searchLat, _searchLng, la, lo) <= _searchRadius;
+                });
+                dvfData.push(...inRadius);
+            } catch(e) { console.warn('DVF fetch error', code, year, e); }
+        }
+    }
+
+    // Dédoublonner par id_mutation
+    const seen = new Set();
+    dvfData = dvfData.filter(r => { if (seen.has(r.id_mutation)) return false; seen.add(r.id_mutation); return true; });
+    // Filtrer sur les vraies ventes avec surface bâtie
+    dvfData = dvfData.filter(r => r.nature_mutation === 'Vente' && parseFloat(r.surface_reelle_bati) > 0);
+
+    _dvfLoaded = true;
+    setStatus(`✓ ${dvfData.length} ventes DVF dans le périmètre`);
+    renderDVFMarkers();
+    renderDVFSidebar();
+};
+
+function renderDVFMarkers() {
+    if (dvfMarkersLayer) map.removeLayer(dvfMarkersLayer);
+    dvfMarkersLayer = L.layerGroup();
+
+    dvfData.forEach(r => {
+        const lat = parseFloat(r.latitude), lng = parseFloat(r.longitude);
+        if (!lat || !lng) return;
+        const prix = parseFloat(r.valeur_fonciere);
+        const surf = parseFloat(r.surface_reelle_bati);
+        const prixM2 = (prix && surf) ? Math.round(prix / surf) : 0;
+        const color = _dvfColor(prixM2);
+        const addr = [r.adresse_numero, r.adresse_nom_voie].filter(Boolean).join(' ');
+        const pieces = r.nombre_pieces_principales ? `${r.nombre_pieces_principales} pce · ` : '';
+
+        L.circleMarker([lat, lng], {
+            radius: 7, fillColor: color, color: '#1a1f2e',
+            weight: 1.5, opacity: 1, fillOpacity: 0.88
+        }).bindPopup(`
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;min-width:220px">
+                <div style="font-weight:700;color:${color};font-size:15px;margin-bottom:6px">
+                    ${prix ? prix.toLocaleString('fr-FR') + ' €' : '—'}
+                </div>
+                <div style="color:#e4e4ee;font-weight:600">${addr || '—'}</div>
+                <div style="color:#a0a8c0;font-size:11px;margin-top:4px">
+                    ${r.type_local} · ${pieces}${surf ? surf + ' m²' : '—'}
+                </div>
+                ${prixM2 ? `<div style="color:${color};font-size:11px;margin-top:2px">📐 ${prixM2.toLocaleString('fr-FR')} €/m²</div>` : ''}
+                <div style="color:#7c84a0;font-size:10px;margin-top:5px;border-top:1px solid #262d42;padding-top:5px">
+                    ${r.date_mutation}
+                </div>
+            </div>
+        `, { maxWidth: 280 }).addTo(dvfMarkersLayer);
+    });
+
+    if (mapMode === 'dvf') dvfMarkersLayer.addTo(map);
+}
+
+function renderDVFSidebar() {
+    const container = document.getElementById('streets-list');
+
+    const apparts = dvfData.filter(r => r.type_local === 'Appartement');
+    const maisons  = dvfData.filter(r => r.type_local === 'Maison');
+
+    function avgM2(arr) {
+        const v = arr.filter(r => parseFloat(r.valeur_fonciere) && parseFloat(r.surface_reelle_bati));
+        if (!v.length) return null;
+        return Math.round(v.reduce((s, r) => s + parseFloat(r.valeur_fonciere) / parseFloat(r.surface_reelle_bati), 0) / v.length);
+    }
+    function medianM2(arr) {
+        const vals = arr.filter(r => parseFloat(r.valeur_fonciere) && parseFloat(r.surface_reelle_bati))
+            .map(r => parseFloat(r.valeur_fonciere) / parseFloat(r.surface_reelle_bati))
+            .sort((a,b) => a-b);
+        if (!vals.length) return null;
+        const m = Math.floor(vals.length / 2);
+        return Math.round(vals.length % 2 ? vals[m] : (vals[m-1] + vals[m]) / 2);
+    }
+
+    const allAvg = avgM2(dvfData), allMed = medianM2(dvfData);
+    const appAvg = avgM2(apparts), maiAvg = avgM2(maisons);
+
+    // Par année
+    const byYear = {};
+    dvfData.forEach(r => {
+        const y = (r.date_mutation || '').slice(0,4) || '?';
+        if (!byYear[y]) byYear[y] = { n: 0, sum: 0, cnt: 0 };
+        byYear[y].n++;
+        const p = parseFloat(r.valeur_fonciere), s = parseFloat(r.surface_reelle_bati);
+        if (p && s) { byYear[y].sum += p/s; byYear[y].cnt++; }
+    });
+
+    document.getElementById('streets-count').textContent = dvfData.length;
+
+    container.innerHTML = `
+    <div style="padding:12px 16px">
+        <!-- KPI principal -->
+        <div style="background:var(--card);border:1px solid var(--gold);border-radius:8px;padding:12px 16px;margin-bottom:10px;text-align:center">
+            <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px">Prix médian / m²</div>
+            <div style="font-family:var(--font-mono);font-size:26px;color:var(--gold);font-weight:700;line-height:1">${allMed ? allMed.toLocaleString('fr-FR') + ' €' : '—'}</div>
+            ${allAvg ? `<div style="font-size:10px;color:var(--text-muted);font-family:var(--font-mono);margin-top:3px">moy. ${allAvg.toLocaleString('fr-FR')} €/m²</div>` : ''}
+        </div>
+        <!-- Appart / Maison -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+            <div style="background:var(--card);border:1px solid var(--border);border-radius:6px;padding:10px">
+                <div style="font-size:9px;color:var(--text-muted);font-family:var(--font-mono);text-transform:uppercase">Appart.</div>
+                <div style="font-size:15px;color:#60a5fa;font-family:var(--font-mono);font-weight:600;margin-top:2px">${appAvg ? appAvg.toLocaleString('fr-FR') + ' €' : '—'}</div>
+                <div style="font-size:10px;color:var(--text-muted)">${apparts.length} ventes</div>
+            </div>
+            <div style="background:var(--card);border:1px solid var(--border);border-radius:6px;padding:10px">
+                <div style="font-size:9px;color:var(--text-muted);font-family:var(--font-mono);text-transform:uppercase">Maison</div>
+                <div style="font-size:15px;color:#a78bfa;font-family:var(--font-mono);font-weight:600;margin-top:2px">${maiAvg ? maiAvg.toLocaleString('fr-FR') + ' €' : '—'}</div>
+                <div style="font-size:10px;color:var(--text-muted)">${maisons.length} ventes</div>
+            </div>
+        </div>
+        <!-- Légende couleurs -->
+        <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Légende prix/m²</div>
+        <div style="display:flex;flex-direction:column;gap:3px;margin-bottom:14px">
+            ${DVF_SCALE.map(s => `
+                <div style="display:flex;align-items:center;gap:8px">
+                    <div style="width:11px;height:11px;border-radius:50%;background:${s.color};flex-shrink:0"></div>
+                    <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted)">${s.label}</span>
+                </div>`).join('')}
+        </div>
+        <!-- Par année -->
+        <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Par année</div>
+        ${Object.keys(byYear).sort().reverse().map(y => {
+            const d = byYear[y];
+            const avg = d.cnt ? Math.round(d.sum / d.cnt) : null;
+            return `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px">
+                <span style="color:var(--text)">${y}</span>
+                <span style="color:var(--text-muted)">${d.n} ventes</span>
+                <span style="color:var(--gold)">${avg ? avg.toLocaleString('fr-FR') + ' €/m²' : '—'}</span>
+            </div>`;
+        }).join('')}
+    </div>`;
 }
 
 // ═══════════════════════════════════════════════
@@ -2475,32 +2718,46 @@ window.selectCRMStreet = function(street) {
 // ═══════════════════════════════════════════════
 window.setMapMode = function(mode) {
     mapMode = mode;
-    _crmStreetFilter = null; // reset street filter on mode switch
-    document.getElementById('mmt-dpe').classList.toggle('active', mode === 'dpe');
+    _crmStreetFilter = null;
+    document.getElementById('mmt-dpe').classList.toggle('active',   mode === 'dpe');
     document.getElementById('mmt-prosp').classList.toggle('active', mode === 'crm');
+    document.getElementById('mmt-dvf').classList.toggle('active',   mode === 'dvf');
 
     const crmStreetsFilter = document.getElementById('crm-streets-filter');
 
+    // Cacher tout d'abord
+    if (dpeMarkersLayer) map.removeLayer(dpeMarkersLayer);
+    if (crmMarkersLayer) map.removeLayer(crmMarkersLayer);
+    if (dvfMarkersLayer) map.removeLayer(dvfMarkersLayer);
+    document.getElementById('contacts-section').style.display = 'none';
+    document.getElementById('dpe-color-toggle').style.display = 'none';
+    document.getElementById('date-legend').style.display = 'none';
+    crmStreetsFilter.style.display = 'none';
+
     if (mode === 'dpe') {
         if (dpeMarkersLayer) dpeMarkersLayer.addTo(map);
-        if (crmMarkersLayer) map.removeLayer(crmMarkersLayer);
-        document.getElementById('contacts-section').style.display = 'none';
         document.getElementById('dpe-color-toggle').style.display = 'flex';
         document.getElementById('date-legend').style.display = dpeColorMode === 'date' ? 'block' : 'none';
-        crmStreetsFilter.style.display = 'none';
+        document.getElementById('streets-section').style.display = allDPERecords.length ? 'block' : 'none';
         document.getElementById('streets-section-title').innerHTML = 'Rues (<span id="streets-count">0</span>)';
         renderStreetsList();
-    } else {
-        if (dpeMarkersLayer) map.removeLayer(dpeMarkersLayer);
-        if (crmMarkersLayer) map.removeLayer(crmMarkersLayer);
-        document.getElementById('dpe-color-toggle').style.display = 'none';
-        document.getElementById('date-legend').style.display = 'none';
-        document.getElementById('contacts-section').style.display = 'none';
+    } else if (mode === 'crm') {
         crmStreetsFilter.style.display = 'flex';
         document.getElementById('streets-section').style.display = 'block';
         document.getElementById('streets-section-title').innerHTML = 'Prospection (<span id="streets-count">0</span>)';
         renderCRMStreetsList();
         renderCRMMarkers();
+    } else if (mode === 'dvf') {
+        document.getElementById('streets-section').style.display = 'block';
+        document.getElementById('streets-section-title').innerHTML = 'Ventes DVF (<span id="streets-count">0</span>)';
+        if (_dvfLoaded) {
+            renderDVFMarkers();
+            renderDVFSidebar();
+        } else {
+            document.getElementById('streets-list').innerHTML =
+                '<div style="padding:20px 16px;font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">Chargement des données DVF…</div>';
+            loadDVFData();
+        }
     }
 };
 
