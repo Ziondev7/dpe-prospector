@@ -1778,11 +1778,13 @@ function renderStreetsList() {
     const sorted = allStreets
         .map(s => ({
             name: s.name,
-            count: getFilteredRecords(currentDPEData[s.name]).length,
+            records: getFilteredRecords(currentDPEData[s.name]),
             total: (currentDPEData[s.name] || []).length
         }))
-        .filter(s => s.total > 0) // Hide streets with no DPE at all
+        .filter(s => s.total > 0)
+        .filter(s => !_multiDPEFilter || s.records.some(_isMultiDPE))
         .filter(s => !searchTerm || s.name.toLowerCase().includes(searchTerm))
+        .map(s => ({ name: s.name, count: s.records.length, total: s.total }))
         .sort((a, b) => b.count - a.count);
 
     document.getElementById('streets-count').textContent = sorted.length;
@@ -2328,6 +2330,7 @@ window.toggleMultiDPEFilter = function(el) {
     _multiDPEFilter = !_multiDPEFilter;
     el.classList.toggle('active', _multiDPEFilter);
     updateDPEMarkers();
+    renderStreetsList();
     const base = (activeMapStreet && currentDPEData[activeMapStreet])
         ? currentDPEData[activeMapStreet] : allDPERecords;
     let recs = getFilteredRecords(base);
