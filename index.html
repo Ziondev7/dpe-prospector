@@ -699,9 +699,9 @@
         <div class="range-labels"><span>100 m</span><span>2 km</span></div>
     </div>
 
-    <!-- PERIODE -->
+    <!-- PERIODE DPE -->
     <div class="section">
-        <div class="section-label">Période des DPE</div>
+        <div class="section-label">Période DPE</div>
         <div class="date-row">
             <div>
                 <label>Du</label>
@@ -712,6 +712,22 @@
                 <input type="date" id="date-to" />
             </div>
         </div>
+    </div>
+
+    <!-- PERIODE DVF -->
+    <div class="section">
+        <div class="section-label">Période DVF <span style="color:var(--text-muted);font-size:9px;font-weight:400;text-transform:none;letter-spacing:0">— ventes notariées</span></div>
+        <div class="date-row">
+            <div>
+                <label>Du</label>
+                <input type="date" id="dvf-date-from" />
+            </div>
+            <div>
+                <label>Au</label>
+                <input type="date" id="dvf-date-to" />
+            </div>
+        </div>
+        <button onclick="reloadDVF()" style="margin-top:8px;width:100%;padding:8px;background:transparent;border:1px solid var(--border);color:var(--text-muted);border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:10px;cursor:pointer;">↺ Recharger les ventes DVF</button>
     </div>
 
     <!-- FILTRE DPE -->
@@ -906,6 +922,10 @@ const now = new Date();
 const twoYearsAgo = new Date(now.getFullYear() - 2, now.getMonth(), now.getDate());
 document.getElementById('date-from').value = twoYearsAgo.toISOString().slice(0, 10);
 document.getElementById('date-to').value = now.toISOString().slice(0, 10);
+// DVF: par défaut 3 ans (données historiques plus riches)
+const threeYearsAgo = new Date(now.getFullYear() - 3, now.getMonth(), now.getDate());
+document.getElementById('dvf-date-from').value = threeYearsAgo.toISOString().slice(0, 10);
+document.getElementById('dvf-date-to').value = now.toISOString().slice(0, 10);
 
 // ── Show local server tip if opened from file:// ──
 if (location.protocol === 'file:') {
@@ -2334,8 +2354,8 @@ function _parseDVFCSV(text) {
 window.loadDVFData = async function() {
     if (!_searchLat || !_searchLng) { setStatus('⚠ Lancez d\'abord une recherche DPE.'); return; }
 
-    const dateFrom = document.getElementById('date-from').value || '2024-01-01';
-    const dateTo   = document.getElementById('date-to').value   || new Date().toISOString().slice(0,10);
+    const dateFrom = document.getElementById('dvf-date-from').value || '2022-01-01';
+    const dateTo   = document.getElementById('dvf-date-to').value   || new Date().toISOString().slice(0,10);
     const yearFrom = Math.max(2020, parseInt(dateFrom.slice(0,4)));
     const yearTo   = Math.min(2025, parseInt(dateTo.slice(0,4)));
 
@@ -2386,6 +2406,16 @@ window.loadDVFData = async function() {
     setStatus(`✓ ${dvfData.length} ventes DVF dans le périmètre`);
     renderDVFMarkers();
     renderDVFSidebar();
+};
+
+window.reloadDVF = function() {
+    _dvfLoaded = false;
+    dvfData = [];
+    if (mapMode === 'dvf') {
+        loadDVFData();
+    } else {
+        setStatus('Période DVF mise à jour — switch sur 💶 Ventes pour recharger.');
+    }
 };
 
 function renderDVFMarkers() {
