@@ -2115,7 +2115,7 @@ window.prospDownload = function() {
 // ═══════════════════════════════════════════════
 //  CACHE (localStorage)
 // ═══════════════════════════════════════════════
-const CACHE_KEY = 'dpe_prosp_parmentier';
+const CACHE_KEY = 'dpe_prosp_parmentier_v2'; // v2: coordonnées corrigées (48.870456, 2.370521)
 
 function _loadCache() {
     try { return JSON.parse(localStorage.getItem(CACHE_KEY) || 'null'); }
@@ -2152,7 +2152,7 @@ function _updateCacheInfo() {
 }
 
 window.quickSearch = async function() {
-    document.getElementById('address-input').value = '141 avenue parmentier paris 75011';
+    document.getElementById('address-input').value = '141 avenue parmentier paris 75010';
     document.getElementById('radius-slider').value = 1000;
     document.getElementById('radius-display').textContent = '1000';
     document.getElementById('date-from').value = '2026-01-01';
@@ -2177,8 +2177,8 @@ window.quickSearch = async function() {
             const dateFrom = cache.lastDate;
             const dateTo = todayStr;
 
-            // Build filter params for 75011
-            const newRaw = await getAllDPEInRadius(48.864353, 2.375397, 1000, dateFrom, dateTo, '75011');
+            // Build filter params for 75010/75011 (141 av Parmentier est en 75010)
+            const newRaw = await getAllDPEInRadius(48.870456, 2.370521, 1000, dateFrom, dateTo, '75010');
 
             // Normalize new records (need _fieldMap, may be null after page reload)
             if (newRaw.length && !_fieldMap) {
@@ -2189,7 +2189,7 @@ window.quickSearch = async function() {
             // Haversine filter: keep only within 1000m of Parmentier center
             const newFiltered = newNormalized.filter(r => {
                 if (!r.lat || !r.lng) return true;
-                return _haversineM(48.864353, 2.375397, r.lat, r.lng) <= 1000;
+                return _haversineM(48.870456, 2.370521, r.lat, r.lng) <= 1000;
             });
 
             // Deduplicate by numero_dpe and merge
@@ -2208,12 +2208,12 @@ window.quickSearch = async function() {
             if (markerLayer) { map.removeLayer(markerLayer); markerLayer = null; }
             if (circleLayer) { map.removeLayer(circleLayer); circleLayer = null; }
 
-            markerLayer = L.circleMarker([48.864353, 2.375397], {
+            markerLayer = L.circleMarker([48.870456, 2.370521], {
                 radius: 10, fillColor: '#c9a84c', color: '#fff',
                 weight: 2.5, opacity: 1, fillOpacity: 1
             }).addTo(map).bindPopup(`<b style="color:#c9a84c">141 Av. Parmentier, Paris</b>`).openPopup();
 
-            circleLayer = L.circle([48.864353, 2.375397], {
+            circleLayer = L.circle([48.870456, 2.370521], {
                 radius: 1000, color: '#c9a84c', fillColor: '#c9a84c',
                 fillOpacity: 0.04, weight: 1.5, dashArray: '6,4'
             }).addTo(map);
