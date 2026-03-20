@@ -167,8 +167,14 @@
         .dpe-chip[data-dpe="G"] { background: #450a0a; color: #fca5a5; border-color: #7f1d1d; }
         .dpe-chip[data-dpe="ALL"] { background: var(--card); color: var(--gold); border-color: var(--border); }
         .dpe-chip[data-dpe="FG"] { background: var(--danger-bg); color: var(--danger); border-color: rgba(239,68,68,0.3); }
+        .dpe-chip[data-dpe="MULTI"] { background: rgba(255,255,255,0.05); color: #fff; border-color: rgba(255,255,255,0.2); }
         .dpe-chip.active[data-dpe="ALL"] { border-color: var(--gold); }
         .dpe-chip.active[data-dpe="FG"] { border-color: var(--danger); }
+        .dpe-chip.active[data-dpe="MULTI"] { background: rgba(255,255,255,0.12); border-color: #fff; color: #fff; opacity: 1; }
+        @keyframes multi-pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(255,255,255,0.6); }
+            50% { box-shadow: 0 0 0 5px rgba(255,255,255,0); }
+        }
 
         /* ── SEARCH BTN ── */
         #search-btn {
@@ -712,6 +718,7 @@
         <div class="dpe-filter-row" id="dpe-filter">
             <div class="dpe-chip active" data-dpe="ALL" onclick="toggleDPEFilter(this)">Tous</div>
             <div class="dpe-chip active" data-dpe="FG" onclick="toggleDPEFilter(this)">F+G 🔥</div>
+            <div class="dpe-chip" data-dpe="MULTI" id="multi-dpe-chip" onclick="toggleMultiDPEFilter(this)" style="display:none">🔄 Multi-DPE <span id="multi-dpe-count"></span></div>
             <div class="dpe-chip active" data-dpe="A" onclick="toggleDPEFilter(this)">A</div>
             <div class="dpe-chip active" data-dpe="B" onclick="toggleDPEFilter(this)">B</div>
             <div class="dpe-chip active" data-dpe="C" onclick="toggleDPEFilter(this)">C</div>
@@ -1639,6 +1646,7 @@ async function startSearch() {
         currentDPEData = matchDPEToStreetNormalized(allDPERecords, streets);
 
         // ── 5. Render ──
+        _buildMultiDPEKeys(allDPERecords);
         document.getElementById('streets-section').style.display = 'block';
         document.getElementById('stats-section').style.display   = 'block';
         renderStreetsList();
@@ -1680,7 +1688,8 @@ function updateDPEMarkers() {
     const base = (activeMapStreet && currentDPEData[activeMapStreet])
         ? currentDPEData[activeMapStreet]
         : allDPERecords;
-    const filtered = getFilteredRecords(base);
+    let filtered = getFilteredRecords(base);
+    if (_multiDPEFilter) filtered = filtered.filter(_isMultiDPE);
 
     // Calcul dynamique min/max dates pour le mode Date
     let _dateMinTs = Infinity, _dateMaxTs = -Infinity;
@@ -1700,12 +1709,13 @@ function updateDPEMarkers() {
         const color = dpeColorMode === 'date'
             ? _getDPEDateColor(r.date_dpe, _dateMinTs, _dateMaxTs)
             : (DPE_COLORS[r.etiquette] || '#888');
+        const isMulti = _isMultiDPE(r);
         const marker = L.circleMarker([r.lat, r.lng], {
-            radius: 5,
-            fillColor: color,
-            color: 'rgba(0,0,0,0.4)',
-            weight: 1,
-            fillOpacity: 0.85
+            radius:      isMulti ? 9 : 5,
+            fillColor:   color,
+            color:       isMulti ? '#ffffff' : 'rgba(0,0,0,0.4)',
+            weight:      isMulti ? 2.5 : 1,
+            fillOpacity: isMulti ? 0.95 : 0.85
         });
 
         const surf = r.surface > 0 ? `${Math.round(r.surface)} m²` : '—';
@@ -1730,6 +1740,7 @@ function updateDPEMarkers() {
                     <span style="background:${DPE_BG[r.etiquette_ges]||'#333'};color:${gesColor};padding:2px 8px;border-radius:3px;font-weight:600;font-size:13px">GES ${r.etiquette_ges}</span>
                     <span style="color:#7c84a0;font-size:11px;margin-left:auto">${surf}</span>
                 </div>
+                ${isMulti ? `<div style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.3);color:#fff;padding:2px 8px;border-radius:var(--radius-sm);font-size:10px;font-family:'IBM Plex Mono',monospace;display:inline-block;margin-bottom:4px">🔄 Multi-DPE — signal vente fort</div>` : ''}
                 <div style="color:#e4e4ee"><b>${r.adresse}</b></div>
                 ${locStr ? `<div style="color:#a0a8c0;font-size:11px">📍 ${locStr}</div>` : ''}
                 ${conso ? `<div style="color:#7c84a0;font-size:11px">⚡ ${conso}</div>` : ''}
@@ -2273,6 +2284,47 @@ window.setDPEColorMode = function(mode) {
 };
 let crmMarkersLayer = null;
 let _crmStatusFilter = 'ALL';
+
+// ── Multi-DPE detection ──
+let _multiDPEFilter = false;
+let _multiDPEKeys   = new Set(); // "adresse|surface" keys with 2+ DPEs
+
+function _buildMultiDPEKeys(records) {
+    const counts = {};
+    records.forEach(r => {
+        const surf = Math.round(parseFloat(r.surface) || 0);
+        if (!surf) return;
+        const key = (r.adresse || '').trim().toLowerCase() + '|' + surf;
+        counts[key] = (counts[key] || 0) + 1;
+    });
+    _multiDPEKeys = new Set(
+        Object.entries(counts).filter(([, n]) => n >= 2).map(([k]) => k)
+    );
+    // Show/update chip
+    const chip = document.getElementById('multi-dpe-chip');
+    const countEl = document.getElementById('multi-dpe-count');
+    if (chip) {
+        chip.style.display = _multiDPEKeys.size > 0 ? '' : 'none';
+        if (countEl) countEl.textContent = _multiDPEKeys.size > 0 ? `(${_multiDPEKeys.size})` : '';
+    }
+}
+
+function _isMultiDPE(r) {
+    const surf = Math.round(parseFloat(r.surface) || 0);
+    if (!surf) return false;
+    return _multiDPEKeys.has((r.adresse || '').trim().toLowerCase() + '|' + surf);
+}
+
+window.toggleMultiDPEFilter = function(el) {
+    _multiDPEFilter = !_multiDPEFilter;
+    el.classList.toggle('active', _multiDPEFilter);
+    updateDPEMarkers();
+    const base = (activeMapStreet && currentDPEData[activeMapStreet])
+        ? currentDPEData[activeMapStreet] : allDPERecords;
+    let recs = getFilteredRecords(base);
+    if (_multiDPEFilter) recs = recs.filter(_isMultiDPE);
+    renderDPETable(recs);
+};
 
 function _getCRMFiltered() {
     if (_crmStatusFilter === 'ALL') return crmContacts;
