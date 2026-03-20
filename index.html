@@ -671,6 +671,8 @@
         if (val === 'beauxrepaires') {
             sessionStorage.setItem(KEY, '1');
             document.getElementById('lock-screen').style.display = 'none';
+            // Auto-lancer la recherche favorite après déverrouillage
+            if (window.quickSearch) window.quickSearch();
         } else {
             document.getElementById('lock-error').textContent = 'Code incorrect';
             document.getElementById('lock-input').value = '';
@@ -2240,6 +2242,11 @@ window.quickSearch = async function() {
 
 // Init: show cache info on page load
 _updateCacheInfo();
+
+// Auto-lancer la recherche favorite si déjà déverrouillé
+if (sessionStorage.getItem('dpe_unlocked') === '1') {
+    quickSearch();
+}
 
 // ═══════════════════════════════════════════════
 //  CRM — GLOBALS & CONSTANTS
