@@ -783,8 +783,19 @@
     <!-- RUES -->
     <div id="streets-section" style="display:none;">
         <div class="streets-header">
-            <span>Rues (<span id="streets-count">0</span>)</span>
-            <input type="text" id="street-search" placeholder="Filtrer..." />
+            <span id="streets-section-title">Rues (<span id="streets-count">0</span>)</span>
+            <input type="text" id="street-search" placeholder="Filtrer..." oninput="mapMode==='crm'?renderCRMStreetsList():renderStreetsList()" />
+        </div>
+        <!-- Filtres CRM (visibles seulement en mode Prospection) -->
+        <div class="crm-status-filter-row" id="crm-streets-filter" style="display:none;">
+            <span class="crm-chip active" data-status="ALL" onclick="toggleCRMFilter(this)">Tous</span>
+            <span class="crm-chip" data-status="GARDIEN" onclick="toggleCRMFilter(this)">🔑 Gardien</span>
+            <span class="crm-chip" data-status="a_visiter" onclick="toggleCRMFilter(this)">🔘 À visiter</span>
+            <span class="crm-chip" data-status="visite" onclick="toggleCRMFilter(this)">🚪 Visité</span>
+            <span class="crm-chip" data-status="en_discussion" onclick="toggleCRMFilter(this)">💬 Discussion</span>
+            <span class="crm-chip" data-status="a_rappeler" onclick="toggleCRMFilter(this)">⏳ Rappeler</span>
+            <span class="crm-chip" data-status="mandat" onclick="toggleCRMFilter(this)">🤝 Mandat</span>
+            <span class="crm-chip" data-status="pas_interesse" onclick="toggleCRMFilter(this)">❌ Pas int.</span>
         </div>
         <div id="streets-list"></div>
     </div>
@@ -2406,26 +2417,90 @@ async function deleteCRMContact(id) {
 }
 
 // ═══════════════════════════════════════════════
+//  CRM — STREETS HELPERS
+// ═══════════════════════════════════════════════
+function _streetFromAddr(addr) {
+    if (!addr) return '— Non classés —';
+    const m = addr.match(/^\d+[a-zA-Z]?\s+(.+)$/);
+    return m ? m[1].trim() : addr.trim();
+}
+let _crmStreetFilter = null; // null = toutes les rues
+
+window.renderCRMStreetsList = function() {
+    const container = document.getElementById('streets-list');
+    const searchTerm = (document.getElementById('street-search').value || '').toLowerCase();
+    const filtered = _getCRMFiltered();
+
+    // Grouper par rue
+    const streetMap = {};
+    filtered.forEach(c => {
+        const street = _streetFromAddr(c.adresse);
+        streetMap[street] = (streetMap[street] || 0) + 1;
+    });
+
+    let streets = Object.entries(streetMap)
+        .filter(([name]) => !searchTerm || name.toLowerCase().includes(searchTerm))
+        .sort((a, b) => b[1] - a[1]);
+
+    document.getElementById('streets-count').textContent = streets.length;
+
+    container.innerHTML = streets.map(([name, count]) => {
+        const safeName = encodeURIComponent(name);
+        const isActive = _crmStreetFilter === name;
+        return `<div class="street-item has-data"
+             onclick="selectCRMStreet(decodeURIComponent('${safeName}'))"
+             style="${isActive ? 'background:var(--gold-dim);border-left:2px solid var(--gold)' : ''}">
+            <span class="street-name">${name}</span>
+            <span class="street-count has-data">${count}</span>
+        </div>`;
+    }).join('') || '<div style="padding:20px 16px;color:var(--text-muted);font-size:12px;font-family:var(--font-mono)">Aucun contact pour ce filtre.</div>';
+};
+
+window.selectCRMStreet = function(street) {
+    _crmStreetFilter = (_crmStreetFilter === street) ? null : street;
+    renderCRMStreetsList();
+    renderCRMMarkers();
+    if (_crmStreetFilter) {
+        const pts = _getCRMFiltered()
+            .filter(c => _streetFromAddr(c.adresse) === _crmStreetFilter)
+            .map(c => [parseFloat(c.lat), parseFloat(c.lng)])
+            .filter(([a, b]) => a && b);
+        if (pts.length === 1) map.setView(pts[0], 17);
+        else if (pts.length > 1) map.fitBounds(pts, { padding: [60, 60] });
+    }
+};
+
+// ═══════════════════════════════════════════════
 //  CRM — MAP MODE TOGGLE
 // ═══════════════════════════════════════════════
 window.setMapMode = function(mode) {
     mapMode = mode;
+    _crmStreetFilter = null; // reset street filter on mode switch
     document.getElementById('mmt-dpe').classList.toggle('active', mode === 'dpe');
     document.getElementById('mmt-prosp').classList.toggle('active', mode === 'crm');
+
+    const crmStreetsFilter = document.getElementById('crm-streets-filter');
 
     if (mode === 'dpe') {
         if (dpeMarkersLayer) dpeMarkersLayer.addTo(map);
         if (crmMarkersLayer) map.removeLayer(crmMarkersLayer);
-        if (window.innerWidth > 768) document.getElementById('contacts-section').style.display = 'none';
+        document.getElementById('contacts-section').style.display = 'none';
         document.getElementById('dpe-color-toggle').style.display = 'flex';
         document.getElementById('date-legend').style.display = dpeColorMode === 'date' ? 'block' : 'none';
+        crmStreetsFilter.style.display = 'none';
+        document.getElementById('streets-section-title').innerHTML = 'Rues (<span id="streets-count">0</span>)';
+        renderStreetsList();
     } else {
         if (dpeMarkersLayer) map.removeLayer(dpeMarkersLayer);
         if (crmMarkersLayer) map.removeLayer(crmMarkersLayer);
         document.getElementById('dpe-color-toggle').style.display = 'none';
         document.getElementById('date-legend').style.display = 'none';
+        document.getElementById('contacts-section').style.display = 'none';
+        crmStreetsFilter.style.display = 'flex';
+        document.getElementById('streets-section').style.display = 'block';
+        document.getElementById('streets-section-title').innerHTML = 'Prospection (<span id="streets-count">0</span>)';
+        renderCRMStreetsList();
         renderCRMMarkers();
-        if (window.innerWidth > 768) document.getElementById('contacts-section').style.display = 'block';
     }
 };
 
@@ -2436,7 +2511,10 @@ function renderCRMMarkers() {
     if (crmMarkersLayer) map.removeLayer(crmMarkersLayer);
     crmMarkersLayer = L.layerGroup();
 
-    _getCRMFiltered().forEach(contact => {
+    let contactsToShow = _getCRMFiltered();
+    if (_crmStreetFilter) contactsToShow = contactsToShow.filter(c => _streetFromAddr(c.adresse) === _crmStreetFilter);
+
+    contactsToShow.forEach(contact => {
         const lat = parseFloat(contact.lat);
         const lng = parseFloat(contact.lng);
         if (!lat || !lng) return;
@@ -2481,11 +2559,13 @@ function renderCRMMarkers() {
 // ═══════════════════════════════════════════════
 window.toggleCRMFilter = function(el) {
     _crmStatusFilter = el.dataset.status;
+    _crmStreetFilter = null; // reset rue sélectionnée quand on change de filtre statut
     document.querySelectorAll('.crm-chip').forEach(c => {
         c.classList.toggle('active', c.dataset.status === _crmStatusFilter);
     });
     renderCRMMarkers();
-    renderContactsList();
+    if (mapMode === 'crm') renderCRMStreetsList();
+    else renderContactsList();
 };
 
 function renderContactsList() {
