@@ -722,9 +722,10 @@
             <span class="dpe-chip" onclick="setDVFYear(2022)" id="dvf-yr-2022">2022</span>
             <span class="dpe-chip" onclick="setDVFYear(2023)" id="dvf-yr-2023">2023</span>
             <span class="dpe-chip" onclick="setDVFYear(2024)" id="dvf-yr-2024">2024</span>
+            <span class="dpe-chip" onclick="setDVFYear(2025)" id="dvf-yr-2025">2025</span>
             <span class="dpe-chip active" onclick="setDVFYear('all')" id="dvf-yr-all">Tout</span>
         </div>
-        <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text-muted);margin-bottom:8px">⚠ Données disponibles jusqu'à juin 2024 — délai légal de publication 6-9 mois</div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--text-muted);margin-bottom:8px">2025 nécessite le proxy Apps Script — voir instructions de déploiement</div>
         <div class="date-row">
             <div>
                 <label>Du</label>
@@ -2361,6 +2362,62 @@ function _parseDVFCSV(text) {
 }
 
 const DVF_ODS = 'https://public.opendatasoft.com/api/explore/v2.1/catalog/datasets/buildingref-france-demande-de-valeurs-foncieres-geolocalisee-millesime/records';
+// DVF_ODS couvre jusqu'à ~juin 2024. Pour les données plus récentes, on passe par le proxy Apps Script.
+const DVF_ODS_MAX_DATE = '2024-06-30';
+
+function _normDVF(r) {
+    return {
+        date_mutation:            r.date_mutation || '',
+        valeur_fonciere:          String(r.valeur_fonciere || ''),
+        type_local:               r.type_local || '',
+        surface_reelle_bati:      String(r.surface_reelle_bati || ''),
+        nombre_pieces_principales:String(r.nombre_pieces_principales || ''),
+        adresse_numero:           String(r.adresse_numero || ''),
+        adresse_nom_voie:         r.adresse_nom_voie || '',
+        latitude:                 String(r.latitude || ''),
+        longitude:                String(r.longitude || ''),
+    };
+}
+
+async function _loadDVFviaODS(dateFrom, dateTo) {
+    const where = [
+        `distance(geo_point, geom'POINT(${_searchLng} ${_searchLat})', ${_searchRadius}m)`,
+        `date_mutation >= '${dateFrom}'`,
+        `date_mutation <= '${dateTo}'`,
+        `nature_mutation = 'Vente'`, `surface_reelle_bati > 0`,
+        `(type_local = 'Appartement' OR type_local = 'Maison')`
+    ].join(' AND ');
+    const select = 'date_mutation,valeur_fonciere,type_local,surface_reelle_bati,nombre_pieces_principales,adresse_numero,adresse_nom_voie,latitude,longitude';
+
+    const probe = await fetch(`${DVF_ODS}?limit=1&where=${encodeURIComponent(where)}&select=date_mutation`);
+    const { total_count: totalCount = 0 } = await probe.json();
+    if (!totalCount) return { records: [], totalCount: 0 };
+
+    const pages = Math.min(Math.ceil(totalCount / 100), 10);
+    const BATCH = 4, offsets = Array.from({length: pages}, (_, i) => i * 100);
+    const records = [];
+    for (let i = 0; i < offsets.length; i += BATCH) {
+        const batch = offsets.slice(i, i + BATCH);
+        const res = await Promise.all(batch.map(async off => {
+            const url = `${DVF_ODS}?limit=100&offset=${off}&where=${encodeURIComponent(where)}&select=${encodeURIComponent(select)}&order_by=date_mutation+DESC`;
+            try { const d = await (await fetch(url)).json(); return (d.results||[]).map(_normDVF); }
+            catch(e) { return []; }
+        }));
+        res.forEach(a => records.push(...a));
+    }
+    return { records, totalCount };
+}
+
+async function _loadDVFviaProxy(dateFrom, dateTo) {
+    const communes = (_searchCommunes.length ? _searchCommunes : ['75110','75111']).join(',');
+    const url = `${CRM_API}?token=${CRM_TOKEN}&action=dvf&lat=${_searchLat}&lng=${_searchLng}&radius=${_searchRadius}&dateFrom=${dateFrom}&dateTo=${dateTo}&communes=${communes}`;
+    try {
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data.status !== 'ok') throw new Error(data.error || 'Erreur proxy');
+        return (data.results || []).map(_normDVF);
+    } catch(e) { console.warn('DVF proxy error:', e); return []; }
+}
 
 window.loadDVFData = async function() {
     if (!_searchLat || !_searchLng) { setStatus('⚠ Lancez d\'abord une recherche DPE.'); return; }
@@ -2368,72 +2425,40 @@ window.loadDVFData = async function() {
     const dateFrom = document.getElementById('dvf-date-from').value || '2022-01-01';
     const dateTo   = document.getElementById('dvf-date-to').value   || new Date().toISOString().slice(0,10);
 
-    const where = [
-        `distance(geo_point, geom'POINT(${_searchLng} ${_searchLat})', ${_searchRadius}m)`,
-        `date_mutation >= '${dateFrom}'`,
-        `date_mutation <= '${dateTo}'`,
-        `nature_mutation = 'Vente'`,
-        `surface_reelle_bati > 0`,
-        `(type_local = 'Appartement' OR type_local = 'Maison')`
-    ].join(' AND ');
-
-    const select = 'date_mutation,valeur_fonciere,type_local,surface_reelle_bati,nombre_pieces_principales,adresse_numero,adresse_nom_voie,latitude,longitude';
-
-    // 1. Récupérer le total
+    dvfData = [];
     setStatus('Chargement DVF…', true);
     let totalCount = 0;
+
     try {
-        const probe = await fetch(`${DVF_ODS}?limit=1&where=${encodeURIComponent(where)}&select=date_mutation`);
-        const probeData = await probe.json();
-        totalCount = probeData.total_count || 0;
+        // Plage couverte par OpenDataSoft (jusqu'à juin 2024)
+        const odsTo = dateTo < DVF_ODS_MAX_DATE ? dateTo : DVF_ODS_MAX_DATE;
+        if (dateFrom <= DVF_ODS_MAX_DATE) {
+            const { records, totalCount: tc } = await _loadDVFviaODS(dateFrom, odsTo);
+            dvfData.push(...records);
+            totalCount += tc;
+        }
+
+        // Plage récente (après juin 2024) via proxy Apps Script
+        const proxyFrom = dateFrom > DVF_ODS_MAX_DATE ? dateFrom : _nextDay(DVF_ODS_MAX_DATE);
+        if (dateTo > DVF_ODS_MAX_DATE) {
+            setStatus('Chargement DVF récent (2024-2025) via proxy…', true);
+            const recent = await _loadDVFviaProxy(proxyFrom, dateTo);
+            dvfData.push(...recent);
+            totalCount += recent.length;
+        }
     } catch(e) { setStatus('❌ Erreur DVF: ' + e.message); return; }
 
-    if (!totalCount) {
-        dvfData = []; _dvfLoaded = true;
-        setStatus('Aucune vente DVF dans ce périmètre / cette période.');
-        renderDVFMarkers(); renderDVFSidebar(); return;
-    }
-
-    // 2. Fetch en parallèle (max 1000 résultats = 10 pages)
-    const MAX_RECORDS = 1000;
-    const pages = Math.min(Math.ceil(totalCount / 100), 10);
-    setStatus(`Chargement ${Math.min(totalCount, MAX_RECORDS)} ventes DVF sur ${totalCount}…`, true);
-
-    const offsets = Array.from({length: pages}, (_, i) => i * 100);
-    const BATCH = 4;
-    dvfData = [];
-
-    for (let i = 0; i < offsets.length; i += BATCH) {
-        const batch = offsets.slice(i, i + BATCH);
-        const results = await Promise.all(batch.map(async offset => {
-            const url = `${DVF_ODS}?limit=100&offset=${offset}&where=${encodeURIComponent(where)}&select=${encodeURIComponent(select)}&order_by=date_mutation+DESC`;
-            try {
-                const res = await fetch(url);
-                const data = await res.json();
-                return (data.results || []).map(r => ({
-                    id_mutation:              `${r.adresse_nom_voie}|${r.date_mutation}|${r.valeur_fonciere}`,
-                    date_mutation:            r.date_mutation || '',
-                    valeur_fonciere:          String(r.valeur_fonciere || ''),
-                    type_local:               r.type_local || '',
-                    surface_reelle_bati:      String(r.surface_reelle_bati || ''),
-                    nombre_pieces_principales:String(r.nombre_pieces_principales || ''),
-                    adresse_numero:           String(r.adresse_numero || ''),
-                    adresse_nom_voie:         r.adresse_nom_voie || '',
-                    latitude:                 String(r.latitude || ''),
-                    longitude:                String(r.longitude || ''),
-                    nature_mutation:          'Vente',
-                }));
-            } catch(e) { console.warn('DVF page error offset', offset, e); return []; }
-        }));
-        results.forEach(arr => dvfData.push(...arr));
-    }
-
     _dvfLoaded = true;
-    const note = totalCount > MAX_RECORDS ? ` (${totalCount} au total)` : '';
+    const note = totalCount > dvfData.length ? ` (${totalCount.toLocaleString('fr-FR')} au total)` : '';
     setStatus(`✓ ${dvfData.length} ventes DVF${note}`);
     renderDVFMarkers();
     renderDVFSidebar(totalCount);
 };
+
+function _nextDay(dateStr) {
+    const d = new Date(dateStr); d.setDate(d.getDate()+1);
+    return d.toISOString().slice(0,10);
+}
 
 window.setDVFYear = function(year) {
     document.querySelectorAll('[id^="dvf-yr-"]').forEach(el => el.classList.remove('active'));
