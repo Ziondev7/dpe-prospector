@@ -2351,61 +2351,79 @@ function _parseDVFCSV(text) {
     return results;
 }
 
+const DVF_ODS = 'https://public.opendatasoft.com/api/explore/v2.1/catalog/datasets/buildingref-france-demande-de-valeurs-foncieres-geolocalisee-millesime/records';
+
 window.loadDVFData = async function() {
     if (!_searchLat || !_searchLng) { setStatus('⚠ Lancez d\'abord une recherche DPE.'); return; }
 
     const dateFrom = document.getElementById('dvf-date-from').value || '2022-01-01';
     const dateTo   = document.getElementById('dvf-date-to').value   || new Date().toISOString().slice(0,10);
-    const yearFrom = Math.max(2020, parseInt(dateFrom.slice(0,4)));
-    const yearTo   = Math.min(2025, parseInt(dateTo.slice(0,4)));
 
-    // DVF ne couvre que les 2 dernières années complètes + en cours si dans la plage
-    // On prend au max 3 ans pour ne pas surcharger
-    const years = [];
-    for (let y = Math.max(yearFrom, yearTo - 2); y <= yearTo; y++) years.push(y);
+    const where = [
+        `distance(geo_point, geom'POINT(${_searchLng} ${_searchLat})', ${_searchRadius}m)`,
+        `date_mutation >= '${dateFrom}'`,
+        `date_mutation <= '${dateTo}'`,
+        `nature_mutation = 'Vente'`,
+        `surface_reelle_bati > 0`,
+        `(type_local = 'Appartement' OR type_local = 'Maison')`
+    ].join(' AND ');
 
-    const communes = _searchCommunes.length ? _searchCommunes : ['75110','75111'];
+    const select = 'date_mutation,valeur_fonciere,type_local,surface_reelle_bati,nombre_pieces_principales,adresse_numero,adresse_nom_voie,latitude,longitude';
 
-    dvfData = [];
-    let totalFetched = 0;
+    // 1. Récupérer le total
+    setStatus('Chargement DVF…', true);
+    let totalCount = 0;
+    try {
+        const probe = await fetch(`${DVF_ODS}?limit=1&where=${encodeURIComponent(where)}&select=date_mutation`);
+        const probeData = await probe.json();
+        totalCount = probeData.total_count || 0;
+    } catch(e) { setStatus('❌ Erreur DVF: ' + e.message); return; }
 
-    for (const year of years) {
-        for (const code of communes) {
-            const dept = code.startsWith('75') ? '75' : code.slice(0,2);
-            const url = `https://files.data.gouv.fr/geo-dvf/latest/csv/${year}/communes/${dept}/${code}.csv`;
-            setStatus(`Chargement DVF ${code} / ${year}…`, true);
-            try {
-                const res = await fetch(url);
-                if (!res.ok) continue;
-                const text = await res.text();
-                const records = _parseDVFCSV(text);
-                totalFetched += records.length;
-
-                // Filtre date
-                const dated = records.filter(r =>
-                    (!dateFrom || r.date_mutation >= dateFrom) &&
-                    (!dateTo   || r.date_mutation <= dateTo)
-                );
-                // Filtre haversine
-                const inRadius = dated.filter(r => {
-                    const la = parseFloat(r.latitude), lo = parseFloat(r.longitude);
-                    return la && lo && _haversineM(_searchLat, _searchLng, la, lo) <= _searchRadius;
-                });
-                dvfData.push(...inRadius);
-            } catch(e) { console.warn('DVF fetch error', code, year, e); }
-        }
+    if (!totalCount) {
+        dvfData = []; _dvfLoaded = true;
+        setStatus('Aucune vente DVF dans ce périmètre / cette période.');
+        renderDVFMarkers(); renderDVFSidebar(); return;
     }
 
-    // Dédoublonner par id_mutation
-    const seen = new Set();
-    dvfData = dvfData.filter(r => { if (seen.has(r.id_mutation)) return false; seen.add(r.id_mutation); return true; });
-    // Filtrer sur les vraies ventes avec surface bâtie
-    dvfData = dvfData.filter(r => r.nature_mutation === 'Vente' && parseFloat(r.surface_reelle_bati) > 0);
+    // 2. Fetch en parallèle (max 1000 résultats = 10 pages)
+    const MAX_RECORDS = 1000;
+    const pages = Math.min(Math.ceil(totalCount / 100), 10);
+    setStatus(`Chargement ${Math.min(totalCount, MAX_RECORDS)} ventes DVF sur ${totalCount}…`, true);
+
+    const offsets = Array.from({length: pages}, (_, i) => i * 100);
+    const BATCH = 4;
+    dvfData = [];
+
+    for (let i = 0; i < offsets.length; i += BATCH) {
+        const batch = offsets.slice(i, i + BATCH);
+        const results = await Promise.all(batch.map(async offset => {
+            const url = `${DVF_ODS}?limit=100&offset=${offset}&where=${encodeURIComponent(where)}&select=${encodeURIComponent(select)}&order_by=date_mutation+DESC`;
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
+                return (data.results || []).map(r => ({
+                    id_mutation:              `${r.adresse_nom_voie}|${r.date_mutation}|${r.valeur_fonciere}`,
+                    date_mutation:            r.date_mutation || '',
+                    valeur_fonciere:          String(r.valeur_fonciere || ''),
+                    type_local:               r.type_local || '',
+                    surface_reelle_bati:      String(r.surface_reelle_bati || ''),
+                    nombre_pieces_principales:String(r.nombre_pieces_principales || ''),
+                    adresse_numero:           String(r.adresse_numero || ''),
+                    adresse_nom_voie:         r.adresse_nom_voie || '',
+                    latitude:                 String(r.latitude || ''),
+                    longitude:                String(r.longitude || ''),
+                    nature_mutation:          'Vente',
+                }));
+            } catch(e) { console.warn('DVF page error offset', offset, e); return []; }
+        }));
+        results.forEach(arr => dvfData.push(...arr));
+    }
 
     _dvfLoaded = true;
-    setStatus(`✓ ${dvfData.length} ventes DVF dans le périmètre`);
+    const note = totalCount > MAX_RECORDS ? ` (${totalCount} au total)` : '';
+    setStatus(`✓ ${dvfData.length} ventes DVF${note}`);
     renderDVFMarkers();
-    renderDVFSidebar();
+    renderDVFSidebar(totalCount);
 };
 
 window.reloadDVF = function() {
@@ -2455,7 +2473,7 @@ function renderDVFMarkers() {
     if (mapMode === 'dvf') dvfMarkersLayer.addTo(map);
 }
 
-function renderDVFSidebar() {
+function renderDVFSidebar(totalCount) {
     const container = document.getElementById('streets-list');
 
     const apparts = dvfData.filter(r => r.type_local === 'Appartement');
@@ -2489,8 +2507,10 @@ function renderDVFSidebar() {
     });
 
     document.getElementById('streets-count').textContent = dvfData.length;
+    const totalNote = totalCount && totalCount > dvfData.length
+        ? `<div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);padding:6px 16px;border-bottom:1px solid var(--border)">⚠ ${dvfData.length} affichées sur ${totalCount.toLocaleString('fr-FR')} — affinez la période pour tout voir</div>` : '';
 
-    container.innerHTML = `
+    container.innerHTML = totalNote + `
     <div style="padding:12px 16px">
         <!-- KPI principal -->
         <div style="background:var(--card);border:1px solid var(--gold);border-radius:8px;padding:12px 16px;margin-bottom:10px;text-align:center">
