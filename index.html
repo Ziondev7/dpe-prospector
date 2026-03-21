@@ -717,6 +717,14 @@
     <!-- PERIODE DVF -->
     <div class="section">
         <div class="section-label">Période DVF <span style="color:var(--text-muted);font-size:9px;font-weight:400;text-transform:none;letter-spacing:0">— ventes notariées</span></div>
+        <!-- Raccourcis année -->
+        <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px">
+            <span class="dpe-chip" onclick="setDVFYear(2022)" id="dvf-yr-2022">2022</span>
+            <span class="dpe-chip" onclick="setDVFYear(2023)" id="dvf-yr-2023">2023</span>
+            <span class="dpe-chip" onclick="setDVFYear(2024)" id="dvf-yr-2024">2024</span>
+            <span class="dpe-chip" onclick="setDVFYear(2025)" id="dvf-yr-2025">2025</span>
+            <span class="dpe-chip active" onclick="setDVFYear('all')" id="dvf-yr-all">Tout</span>
+        </div>
         <div class="date-row">
             <div>
                 <label>Du</label>
@@ -2305,7 +2313,8 @@ if (sessionStorage.getItem('dpe_unlocked') === '1') {
 
 let dvfData         = [];
 let dvfMarkersLayer = null;
-let _dvfLoaded      = false; // pour éviter de recharger si déjà fait
+let _dvfLoaded      = false;
+let _dvfStreetFilter = null; // rue sélectionnée en mode DVF
 
 // Échelle de prix €/m² (adaptée Paris)
 const DVF_SCALE = [
@@ -2426,8 +2435,38 @@ window.loadDVFData = async function() {
     renderDVFSidebar(totalCount);
 };
 
+window.setDVFYear = function(year) {
+    document.querySelectorAll('[id^="dvf-yr-"]').forEach(el => el.classList.remove('active'));
+    if (year === 'all') {
+        const threeBack = new Date(); threeBack.setFullYear(threeBack.getFullYear() - 3);
+        document.getElementById('dvf-date-from').value = threeBack.toISOString().slice(0,10);
+        document.getElementById('dvf-date-to').value   = new Date().toISOString().slice(0,10);
+        document.getElementById('dvf-yr-all').classList.add('active');
+    } else {
+        document.getElementById('dvf-date-from').value = `${year}-01-01`;
+        document.getElementById('dvf-date-to').value   = `${year}-12-31`;
+        document.getElementById(`dvf-yr-${year}`).classList.add('active');
+    }
+    reloadDVF();
+};
+
+window.selectDVFStreet = function(street) {
+    _dvfStreetFilter = (_dvfStreetFilter === street) ? null : street;
+    renderDVFMarkers();
+    renderDVFSidebar();
+    if (_dvfStreetFilter) {
+        const pts = dvfData
+            .filter(r => r.adresse_nom_voie === _dvfStreetFilter)
+            .map(r => [parseFloat(r.latitude), parseFloat(r.longitude)])
+            .filter(([a,b]) => a && b);
+        if (pts.length === 1) map.setView(pts[0], 17);
+        else if (pts.length > 1) map.fitBounds(pts, {padding:[60,60]});
+    }
+};
+
 window.reloadDVF = function() {
     _dvfLoaded = false;
+    _dvfStreetFilter = null;
     dvfData = [];
     if (mapMode === 'dvf') {
         loadDVFData();
@@ -2440,7 +2479,8 @@ function renderDVFMarkers() {
     if (dvfMarkersLayer) map.removeLayer(dvfMarkersLayer);
     dvfMarkersLayer = L.layerGroup();
 
-    dvfData.forEach(r => {
+    const toShow = _dvfStreetFilter ? dvfData.filter(r => r.adresse_nom_voie === _dvfStreetFilter) : dvfData;
+    toShow.forEach(r => {
         const lat = parseFloat(r.latitude), lng = parseFloat(r.longitude);
         if (!lat || !lng) return;
         const prix = parseFloat(r.valeur_fonciere);
@@ -2476,9 +2516,6 @@ function renderDVFMarkers() {
 function renderDVFSidebar(totalCount) {
     const container = document.getElementById('streets-list');
 
-    const apparts = dvfData.filter(r => r.type_local === 'Appartement');
-    const maisons  = dvfData.filter(r => r.type_local === 'Maison');
-
     function avgM2(arr) {
         const v = arr.filter(r => parseFloat(r.valeur_fonciere) && parseFloat(r.surface_reelle_bati));
         if (!v.length) return null;
@@ -2486,72 +2523,64 @@ function renderDVFSidebar(totalCount) {
     }
     function medianM2(arr) {
         const vals = arr.filter(r => parseFloat(r.valeur_fonciere) && parseFloat(r.surface_reelle_bati))
-            .map(r => parseFloat(r.valeur_fonciere) / parseFloat(r.surface_reelle_bati))
-            .sort((a,b) => a-b);
+            .map(r => parseFloat(r.valeur_fonciere) / parseFloat(r.surface_reelle_bati)).sort((a,b) => a-b);
         if (!vals.length) return null;
         const m = Math.floor(vals.length / 2);
-        return Math.round(vals.length % 2 ? vals[m] : (vals[m-1] + vals[m]) / 2);
+        return Math.round(vals.length % 2 ? vals[m] : (vals[m-1]+vals[m])/2);
     }
 
-    const allAvg = avgM2(dvfData), allMed = medianM2(dvfData);
-    const appAvg = avgM2(apparts), maiAvg = avgM2(maisons);
+    // Données à afficher (filtrées par rue si sélection)
+    const displayed = _dvfStreetFilter ? dvfData.filter(r => r.adresse_nom_voie === _dvfStreetFilter) : dvfData;
+    const allMed = medianM2(displayed), allAvg = avgM2(displayed);
 
-    // Par année
-    const byYear = {};
+    // Grouper par rue
+    const byStreet = {};
     dvfData.forEach(r => {
-        const y = (r.date_mutation || '').slice(0,4) || '?';
-        if (!byYear[y]) byYear[y] = { n: 0, sum: 0, cnt: 0 };
-        byYear[y].n++;
+        const rue = r.adresse_nom_voie || '— Sans rue —';
+        if (!byStreet[rue]) byStreet[rue] = { n: 0, sum: 0, cnt: 0 };
+        byStreet[rue].n++;
         const p = parseFloat(r.valeur_fonciere), s = parseFloat(r.surface_reelle_bati);
-        if (p && s) { byYear[y].sum += p/s; byYear[y].cnt++; }
+        if (p && s) { byStreet[rue].sum += p/s; byStreet[rue].cnt++; }
     });
+    const streets = Object.entries(byStreet).sort((a,b) => b[1].n - a[1].n);
 
     document.getElementById('streets-count').textContent = dvfData.length;
-    const totalNote = totalCount && totalCount > dvfData.length
-        ? `<div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);padding:6px 16px;border-bottom:1px solid var(--border)">⚠ ${dvfData.length} affichées sur ${totalCount.toLocaleString('fr-FR')} — affinez la période pour tout voir</div>` : '';
 
-    container.innerHTML = totalNote + `
-    <div style="padding:12px 16px">
-        <!-- KPI principal -->
-        <div style="background:var(--card);border:1px solid var(--gold);border-radius:8px;padding:12px 16px;margin-bottom:10px;text-align:center">
-            <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px">Prix médian / m²</div>
-            <div style="font-family:var(--font-mono);font-size:26px;color:var(--gold);font-weight:700;line-height:1">${allMed ? allMed.toLocaleString('fr-FR') + ' €' : '—'}</div>
-            ${allAvg ? `<div style="font-size:10px;color:var(--text-muted);font-family:var(--font-mono);margin-top:3px">moy. ${allAvg.toLocaleString('fr-FR')} €/m²</div>` : ''}
+    const totalNote = totalCount && totalCount > dvfData.length
+        ? `<div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);padding:5px 14px;border-bottom:1px solid var(--border)">⚠ ${dvfData.length} sur ${totalCount.toLocaleString('fr-FR')} — réduire la période pour tout voir</div>` : '';
+
+    // Stats compactes (global ou rue sélectionnée)
+    const statsBar = `
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0;border-bottom:1px solid var(--border)">
+        <div style="padding:8px 10px;border-right:1px solid var(--border);text-align:center">
+            <div style="font-size:9px;color:var(--text-muted);font-family:var(--font-mono);text-transform:uppercase">Médiane/m²</div>
+            <div style="font-size:13px;color:var(--gold);font-family:var(--font-mono);font-weight:700">${allMed ? allMed.toLocaleString('fr-FR')+'€' : '—'}</div>
         </div>
-        <!-- Appart / Maison -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
-            <div style="background:var(--card);border:1px solid var(--border);border-radius:6px;padding:10px">
-                <div style="font-size:9px;color:var(--text-muted);font-family:var(--font-mono);text-transform:uppercase">Appart.</div>
-                <div style="font-size:15px;color:#60a5fa;font-family:var(--font-mono);font-weight:600;margin-top:2px">${appAvg ? appAvg.toLocaleString('fr-FR') + ' €' : '—'}</div>
-                <div style="font-size:10px;color:var(--text-muted)">${apparts.length} ventes</div>
-            </div>
-            <div style="background:var(--card);border:1px solid var(--border);border-radius:6px;padding:10px">
-                <div style="font-size:9px;color:var(--text-muted);font-family:var(--font-mono);text-transform:uppercase">Maison</div>
-                <div style="font-size:15px;color:#a78bfa;font-family:var(--font-mono);font-weight:600;margin-top:2px">${maiAvg ? maiAvg.toLocaleString('fr-FR') + ' €' : '—'}</div>
-                <div style="font-size:10px;color:var(--text-muted)">${maisons.length} ventes</div>
-            </div>
+        <div style="padding:8px 10px;border-right:1px solid var(--border);text-align:center">
+            <div style="font-size:9px;color:var(--text-muted);font-family:var(--font-mono);text-transform:uppercase">Moyenne/m²</div>
+            <div style="font-size:13px;color:#60a5fa;font-family:var(--font-mono);font-weight:700">${allAvg ? allAvg.toLocaleString('fr-FR')+'€' : '—'}</div>
         </div>
-        <!-- Légende couleurs -->
-        <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Légende prix/m²</div>
-        <div style="display:flex;flex-direction:column;gap:3px;margin-bottom:14px">
-            ${DVF_SCALE.map(s => `
-                <div style="display:flex;align-items:center;gap:8px">
-                    <div style="width:11px;height:11px;border-radius:50%;background:${s.color};flex-shrink:0"></div>
-                    <span style="font-family:var(--font-mono);font-size:10px;color:var(--text-muted)">${s.label}</span>
-                </div>`).join('')}
+        <div style="padding:8px 10px;text-align:center">
+            <div style="font-size:9px;color:var(--text-muted);font-family:var(--font-mono);text-transform:uppercase">Ventes</div>
+            <div style="font-size:13px;color:var(--text);font-family:var(--font-mono);font-weight:700">${displayed.length}</div>
         </div>
-        <!-- Par année -->
-        <div style="font-family:var(--font-mono);font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px">Par année</div>
-        ${Object.keys(byYear).sort().reverse().map(y => {
-            const d = byYear[y];
-            const avg = d.cnt ? Math.round(d.sum / d.cnt) : null;
-            return `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-family:var(--font-mono);font-size:11px">
-                <span style="color:var(--text)">${y}</span>
-                <span style="color:var(--text-muted)">${d.n} ventes</span>
-                <span style="color:var(--gold)">${avg ? avg.toLocaleString('fr-FR') + ' €/m²' : '—'}</span>
-            </div>`;
-        }).join('')}
     </div>`;
+
+    // Liste des rues
+    const streetsList = streets.map(([rue, d]) => {
+        const isActive = _dvfStreetFilter === rue;
+        const avg = d.cnt ? Math.round(d.sum / d.cnt) : null;
+        const safeRue = encodeURIComponent(rue);
+        return `<div class="street-item has-data"
+            onclick="selectDVFStreet(decodeURIComponent('${safeRue}'))"
+            style="${isActive ? 'background:var(--gold-dim);border-left:2px solid var(--gold)' : ''}">
+            <span class="street-name" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${rue}</span>
+            <span style="font-family:var(--font-mono);font-size:10px;color:var(--gold);margin-left:6px;flex-shrink:0">${avg ? avg.toLocaleString('fr-FR')+'€' : ''}</span>
+            <span class="street-count has-data" style="flex-shrink:0;margin-left:4px">${d.n}</span>
+        </div>`;
+    }).join('');
+
+    container.innerHTML = totalNote + statsBar + streetsList;
 }
 
 // ═══════════════════════════════════════════════
